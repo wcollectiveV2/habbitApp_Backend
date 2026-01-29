@@ -5,14 +5,15 @@ import { query } from '../../lib/db';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Handle CORS preflight
+  cors(res, req);
+  
   if (req.method === 'OPTIONS') {
-    cors(res, req);
     return res.status(200).end();
   }
 
   const auth = getAuthFromRequest(req);
   if (!auth) {
-    return error(res, 'Unauthorized', 401);
+    return error(res, 'Unauthorized', 401, req);
   }
 
   const userId = auth.sub;
@@ -21,7 +22,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // GET /api/habits - List habits
   if (req.method === 'GET' && !habitId && path.endsWith('/habits')) {
-    return listHabits(userId, res);
+    return listHabits(userId, res, req);
   }
 
   // POST /api/habits - Create habit
@@ -31,7 +32,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // GET /api/habits/:id - Get single habit
   if (req.method === 'GET' && habitId) {
-    return getHabit(userId, habitId as string, res);
+    return getHabit(userId, habitId as string, res, req);
   }
 
   // PATCH /api/habits/:id - Update habit
@@ -41,21 +42,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // DELETE /api/habits/:id - Delete habit
   if (req.method === 'DELETE' && habitId) {
-    return deleteHabit(userId, habitId as string, res);
+    return deleteHabit(userId, habitId as string, res, req);
   }
 
   // POST /api/habits/:id/complete - Mark habit complete
   if (req.method === 'POST' && path.includes('/complete')) {
     const id = path.split('/habits/')[1]?.split('/')[0];
     if (id) {
-      return completeHabit(userId, id, res);
+      return completeHabit(userId, id, res, req);
     }
   }
 
-  return error(res, 'Not found', 404);
+  return error(res, 'Not found', 404, req);
 }
 
-async function listHabits(userId: string, res: VercelResponse) {
+async function listHabits(userId: string, res: VercelResponse, req: VercelRequest) {
   try {
     const habits = await query(
       `SELECT h.*, 
@@ -66,9 +67,9 @@ async function listHabits(userId: string, res: VercelResponse) {
       [userId]
     );
 
-    return json(res, { habits });
+    return json(res, { habits }, 200, req);
   } catch (err: any) {
-    return error(res, err.message || 'Failed to list habits', 500);
+    return error(res, err.message || 'Failed to list habits', 500, req);
   }
 }
 
@@ -77,7 +78,7 @@ async function createHabit(userId: string, req: VercelRequest, res: VercelRespon
     const { name, description, frequency, target_count, category } = req.body;
 
     if (!name) {
-      return error(res, 'Habit name is required', 400);
+      return error(res, 'Habit name is required', 400, req);
     }
 
     const habits = await query(
@@ -87,13 +88,13 @@ async function createHabit(userId: string, req: VercelRequest, res: VercelRespon
       [userId, name, description || '', frequency || 'daily', target_count || 1, category || 'general']
     );
 
-    return json(res, { habit: habits[0] }, 201);
+    return json(res, { habit: habits[0] }, 201, req);
   } catch (err: any) {
-    return error(res, err.message || 'Failed to create habit', 500);
+    return error(res, err.message || 'Failed to create habit', 500, req);
   }
 }
 
-async function getHabit(userId: string, habitId: string, res: VercelResponse) {
+async function getHabit(userId: string, habitId: string, res: VercelResponse, req: VercelRequest) {
   try {
     const habits = await query(
       'SELECT * FROM habits WHERE id = $1 AND user_id = $2',
@@ -101,12 +102,12 @@ async function getHabit(userId: string, habitId: string, res: VercelResponse) {
     );
 
     if (habits.length === 0) {
-      return error(res, 'Habit not found', 404);
+      return error(res, 'Habit not found', 404, req);
     }
 
-    return json(res, { habit: habits[0] });
+    return json(res, { habit: habits[0] }, 200, req);
   } catch (err: any) {
-    return error(res, err.message || 'Failed to get habit', 500);
+    return error(res, err.message || 'Failed to get habit', 500, req);
   }
 }
 
@@ -129,16 +130,16 @@ async function updateHabit(userId: string, habitId: string, req: VercelRequest, 
     );
 
     if (habits.length === 0) {
-      return error(res, 'Habit not found', 404);
+      return error(res, 'Habit not found', 404, req);
     }
 
-    return json(res, { habit: habits[0] });
+    return json(res, { habit: habits[0] }, 200, req);
   } catch (err: any) {
-    return error(res, err.message || 'Failed to update habit', 500);
+    return error(res, err.message || 'Failed to update habit', 500, req);
   }
 }
 
-async function deleteHabit(userId: string, habitId: string, res: VercelResponse) {
+async function deleteHabit(userId: string, habitId: string, res: VercelResponse, req: VercelRequest) {
   try {
     const result = await query(
       'DELETE FROM habits WHERE id = $1 AND user_id = $2 RETURNING id',
@@ -146,21 +147,21 @@ async function deleteHabit(userId: string, habitId: string, res: VercelResponse)
     );
 
     if (result.length === 0) {
-      return error(res, 'Habit not found', 404);
+      return error(res, 'Habit not found', 404, req);
     }
 
-    return json(res, { success: true });
+    return json(res, { success: true }, 200, req);
   } catch (err: any) {
-    return error(res, err.message || 'Failed to delete habit', 500);
+    return error(res, err.message || 'Failed to delete habit', 500, req);
   }
 }
 
-async function completeHabit(userId: string, habitId: string, res: VercelResponse) {
+async function completeHabit(userId: string, habitId: string, res: VercelResponse, req: VercelRequest) {
   try {
     // Verify habit belongs to user
     const habits = await query('SELECT id FROM habits WHERE id = $1 AND user_id = $2', [habitId, userId]);
     if (habits.length === 0) {
-      return error(res, 'Habit not found', 404);
+      return error(res, 'Habit not found', 404, req);
     }
 
     // Log completion
@@ -172,8 +173,8 @@ async function completeHabit(userId: string, habitId: string, res: VercelRespons
       [habitId, userId]
     );
 
-    return json(res, { success: true, log: logs[0] || null });
+    return json(res, { success: true, log: logs[0] || null }, 200, req);
   } catch (err: any) {
-    return error(res, err.message || 'Failed to complete habit', 500);
+    return error(res, err.message || 'Failed to complete habit', 500, req);
   }
 }

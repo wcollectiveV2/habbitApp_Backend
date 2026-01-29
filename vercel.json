@@ -25,9 +25,15 @@
     { "source": "/api/habits/:path*", "destination": "/api/habits/[...path]" },
     { "source": "/api/tasks/:path*", "destination": "/api/tasks/[...path]" },
     { "source": "/api/user/:path*", "destination": "/api/user/[...path]" },
+    { "source": "/api/challenges/:path*", "destination": "/api/challenges/[...path]" },
+    { "source": "/api/social/:path*", "destination": "/api/social/[...path]" },
+    { "source": "/api/ai/:path*", "destination": "/api/ai/[...path]" },
     { "source": "/auth/:path*", "destination": "/api/auth/[...path]" },
     { "source": "/habits/:path*", "destination": "/api/habits/[...path]" },
     { "source": "/tasks/:path*", "destination": "/api/tasks/[...path]" },
-    { "source": "/user/:path*", "destination": "/api/user/[...path]" }
+    { "source": "/user/:path*", "destination": "/api/user/[...path]" },
+    { "source": "/challenges/:path*", "destination": "/api/challenges/[...path]" },
+    { "source": "/social/:path*", "destination": "/api/social/[...path]" },
+    { "source": "/ai/:path*", "destination": "/api/ai/[...path]" }
   ]
 }

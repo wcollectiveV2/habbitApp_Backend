@@ -5,14 +5,15 @@ import { query } from '../../lib/db';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Handle CORS preflight
+  cors(res, req);
+  
   if (req.method === 'OPTIONS') {
-    cors(res, req);
     return res.status(200).end();
   }
 
   const auth = getAuthFromRequest(req);
   if (!auth) {
-    return error(res, 'Unauthorized', 401);
+    return error(res, 'Unauthorized', 401, req);
   }
 
   const userId = auth.sub;
@@ -21,7 +22,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // GET /api/tasks/today
   if (req.method === 'GET' && path.includes('/today')) {
-    return getTodayTasks(userId, res);
+    return getTodayTasks(userId, res, req);
   }
 
   // POST /api/tasks
@@ -39,10 +40,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return getTaskHistory(userId, req, res);
   }
 
-  return error(res, 'Not found', 404);
+  return error(res, 'Not found', 404, req);
 }
 
-async function getTodayTasks(userId: string, res: VercelResponse) {
+async function getTodayTasks(userId: string, res: VercelResponse, req: VercelRequest) {
   try {
     const tasks = await query(
       `SELECT t.*, h.name as habit_name, h.category
@@ -53,9 +54,9 @@ async function getTodayTasks(userId: string, res: VercelResponse) {
       [userId]
     );
 
-    return json(res, { tasks });
+    return json(res, { tasks }, 200, req);
   } catch (err: any) {
-    return error(res, err.message || 'Failed to get tasks', 500);
+    return error(res, err.message || 'Failed to get tasks', 500, req);
   }
 }
 
@@ -64,7 +65,7 @@ async function createTask(userId: string, req: VercelRequest, res: VercelRespons
     const { title, description, habit_id, due_date, priority } = req.body;
 
     if (!title) {
-      return error(res, 'Task title is required', 400);
+      return error(res, 'Task title is required', 400, req);
     }
 
     const tasks = await query(
@@ -74,9 +75,9 @@ async function createTask(userId: string, req: VercelRequest, res: VercelRespons
       [userId, title, description || '', habit_id || null, due_date || new Date().toISOString(), priority || 'medium']
     );
 
-    return json(res, { task: tasks[0] }, 201);
+    return json(res, { task: tasks[0] }, 201, req);
   } catch (err: any) {
-    return error(res, err.message || 'Failed to create task', 500);
+    return error(res, err.message || 'Failed to create task', 500, req);
   }
 }
 
@@ -98,12 +99,12 @@ async function updateTask(userId: string, taskId: string, req: VercelRequest, re
     );
 
     if (tasks.length === 0) {
-      return error(res, 'Task not found', 404);
+      return error(res, 'Task not found', 404, req);
     }
 
-    return json(res, { task: tasks[0] });
+    return json(res, { task: tasks[0] }, 200, req);
   } catch (err: any) {
-    return error(res, err.message || 'Failed to update task', 500);
+    return error(res, err.message || 'Failed to update task', 500, req);
   }
 }
 
@@ -121,8 +122,8 @@ async function getTaskHistory(userId: string, req: VercelRequest, res: VercelRes
       [userId, Number(limit), Number(offset)]
     );
 
-    return json(res, { tasks });
+    return json(res, { tasks }, 200, req);
   } catch (err: any) {
-    return error(res, err.message || 'Failed to get task history', 500);
+    return error(res, err.message || 'Failed to get task history', 500, req);
   }
 }
