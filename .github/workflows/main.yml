@@ -1,0 +1,81 @@
+name: Auto Update README on Push
+
+on:
+  push:
+    branches:
+      - '**'   # Trigger on all branches
+
+permissions:
+  contents: write  # <-- Important: allow pushing commits
+
+jobs:
+  validate-translations:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: |
+          cd client
+          npm ci
+
+      - name: Run translation validation
+        run: |
+          cd client
+          npm run validate-translations
+
+      - name: Run translation tests
+        run: |
+          cd client
+          npm run test:translations
+
+  update-readme:
+    runs-on: ubuntu-latest
+
+    # Skip unwanted branches like auto-update-* or dependabot/*
+    if: |
+      !startsWith(github.ref_name, 'auto-update-') &&
+      !startsWith(github.ref_name, 'dependabot/')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0  # needed to push back
+
+      - name: Set up Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Update README with metadata
+        run: |
+          timestamp=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          actor=${GITHUB_ACTOR}
+          commit=${GITHUB_SHA}
+
+          if grep -q "^Last auto update:" README.md; then
+            sed -i "s|^Last auto update:.*|Last auto update: ${timestamp} by ${actor} on commit ${commit}|" README.md
+          else
+            echo "" >> README.md
+            echo "Last auto update: ${timestamp} by ${actor} on commit ${commit}" >> README.md
+          fi
+
+      - name: Commit and push changes
+        run: |
+          branch="${{ github.ref_name }}"
+          git add README.md
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Auto-update README after push [skip ci]"
+            git push origin HEAD:$branch
+          fi
