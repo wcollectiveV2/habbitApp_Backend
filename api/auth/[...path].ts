@@ -7,7 +7,7 @@ import bcrypt from 'bcryptjs';
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    cors(res);
+    cors(res, req);
     return res.status(200).end();
   }
 
@@ -33,7 +33,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return handleMe(req, res);
   }
 
-  return error(res, 'Not found', 404);
+  return error(res, 'Not found', 404, req);
 }
 
 async function handleLogin(req: VercelRequest, res: VercelResponse) {

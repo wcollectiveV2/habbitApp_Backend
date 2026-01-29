@@ -12,9 +12,10 @@
       "source": "/api/(.*)",
       "headers": [
         { "key": "Access-Control-Allow-Credentials", "value": "true" },
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Origin", "value": "https://habbit-app-smoky.vercel.app" },
         { "key": "Access-Control-Allow-Methods", "value": "GET,OPTIONS,PATCH,DELETE,POST,PUT" },
-        { "key": "Access-Control-Allow-Headers", "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization" }
+        { "key": "Access-Control-Allow-Headers", "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, Origin" },
+        { "key": "Access-Control-Max-Age", "value": "86400" }
       ]
     }
   ],
@@ -22,6 +23,10 @@
     { "source": "/api/auth/:path*", "destination": "/api/auth/[...path]" },
     { "source": "/api/habits/:path*", "destination": "/api/habits/[...path]" },
     { "source": "/api/tasks/:path*", "destination": "/api/tasks/[...path]" },
-    { "source": "/api/user/:path*", "destination": "/api/user/[...path]" }
+    { "source": "/api/user/:path*", "destination": "/api/user/[...path]" },
+    { "source": "/auth/:path*", "destination": "/api/auth/[...path]" },
+    { "source": "/habits/:path*", "destination": "/api/habits/[...path]" },
+    { "source": "/tasks/:path*", "destination": "/api/tasks/[...path]" },
+    { "source": "/user/:path*", "destination": "/api/user/[...path]" }
   ]
 }

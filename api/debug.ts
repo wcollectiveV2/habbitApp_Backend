@@ -4,7 +4,7 @@ import { cors } from '../lib/response';
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    cors(res);
+    cors(res, req);
     return res.status(200).end();
   }
 
