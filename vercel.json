@@ -20,6 +20,7 @@
     }
   ],
   "rewrites": [
+    { "source": "/health", "destination": "/api/health" },
     { "source": "/api/auth/:path*", "destination": "/api/auth/[...path]" },
     { "source": "/api/habits/:path*", "destination": "/api/habits/[...path]" },
     { "source": "/api/tasks/:path*", "destination": "/api/tasks/[...path]" },
