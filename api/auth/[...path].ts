@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { json, error, cors } from '../../lib/response';
 import { getAuthFromRequest, generateToken, verifyToken } from '../../lib/auth';
 import { query } from '../../lib/db';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Handle CORS preflight
