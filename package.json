@@ -1,10 +1,9 @@
 {
-  "name": "chrislo-vercel-backend",
+  "name": "habbitapp-backend",
   "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "vercel dev",
-    "build": "tsc",
     "deploy": "vercel --prod"
   },
   "dependencies": {
@@ -17,7 +16,6 @@
     "@types/jsonwebtoken": "^9.0.5",
     "@types/node": "^20.10.0",
     "@vercel/node": "^3.0.0",
-    "typescript": "^5.3.0",
-    "vercel": "^32.0.0"
+    "typescript": "^5.3.0"
   }
 }

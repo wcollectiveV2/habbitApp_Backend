@@ -1,6 +1,7 @@
 {
   "version": 2,
-  "framework": null,
+  "buildCommand": "",
+  "outputDirectory": ".",
   "functions": {
     "api/**/*.ts": {
       "maxDuration": 30
@@ -18,8 +19,9 @@
     }
   ],
   "rewrites": [
-    { "source": "/api/habits/:path*", "destination": "/api/habits" },
-    { "source": "/api/tasks/:path*", "destination": "/api/tasks" },
-    { "source": "/api/user/:path*", "destination": "/api/user" }
+    { "source": "/api/auth/:path*", "destination": "/api/auth/[...path]" },
+    { "source": "/api/habits/:path*", "destination": "/api/habits/[...path]" },
+    { "source": "/api/tasks/:path*", "destination": "/api/tasks/[...path]" },
+    { "source": "/api/user/:path*", "destination": "/api/user/[...path]" }
   ]
 }
