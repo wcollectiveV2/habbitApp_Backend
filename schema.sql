@@ -10,7 +10,10 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash VARCHAR(255) NOT NULL,
   name VARCHAR(255) NOT NULL,
   avatar_url TEXT,
+  bio TEXT,
   current_streak INT DEFAULT 0,
+  privacy_public_leaderboard VARCHAR(50) DEFAULT 'visible',
+  privacy_challenge_leaderboard VARCHAR(50) DEFAULT 'visible',
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
