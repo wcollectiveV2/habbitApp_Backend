@@ -3,31 +3,21 @@
   "buildCommand": "",
   "outputDirectory": ".",
   "functions": {
-    "api/**/*.ts": {
+    "api/index.ts": {
       "maxDuration": 30
     }
   },
   "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index" },
     { "source": "/health", "destination": "/api/index?route=health" },
-    { "source": "/api/health", "destination": "/api/index?route=health" },
-    { "source": "/api/admin/stats", "destination": "/api/index?route=stats" },
-    { "source": "/api/auth/:path*", "destination": "/api/auth/[...path]" },
-    { "source": "/api/habits/:path*", "destination": "/api/habits/[...path]" },
-    { "source": "/api/tasks/:path*", "destination": "/api/tasks/[...path]" },
-    { "source": "/api/user/:path*", "destination": "/api/user/[...path]" },
-    { "source": "/api/challenges/:path*", "destination": "/api/challenges/[...path]" },
-    { "source": "/api/social/:path*", "destination": "/api/social/[...path]" },
-    { "source": "/api/ai/:path*", "destination": "/api/ai/[...path]" },
-    { "source": "/api/protocols/:path*", "destination": "/api/protocols/[...path]" },
-    { "source": "/api/groups/:path*", "destination": "/api/organizations/[...path]" },
-    { "source": "/groups/:path*", "destination": "/api/organizations/[...path]" },
-    { "source": "/auth/:path*", "destination": "/api/auth/[...path]" },
-    { "source": "/habits/:path*", "destination": "/api/habits/[...path]" },
-    { "source": "/tasks/:path*", "destination": "/api/tasks/[...path]" },
-    { "source": "/user/:path*", "destination": "/api/user/[...path]" },
-    { "source": "/challenges/:path*", "destination": "/api/challenges/[...path]" },
-    { "source": "/social/:path*", "destination": "/api/social/[...path]" },
-    { "source": "/ai/:path*", "destination": "/api/ai/[...path]" },
-    { "source": "/protocols/:path*", "destination": "/api/protocols/[...path]" }
+    { "source": "/auth/:path*", "destination": "/api/index" },
+    { "source": "/habits/:path*", "destination": "/api/index" },
+    { "source": "/tasks/:path*", "destination": "/api/index" },
+    { "source": "/user/:path*", "destination": "/api/index" },
+    { "source": "/challenges/:path*", "destination": "/api/index" },
+    { "source": "/social/:path*", "destination": "/api/index" },
+    { "source": "/ai/:path*", "destination": "/api/index" },
+    { "source": "/protocols/:path*", "destination": "/api/index" },
+    { "source": "/groups/:path*", "destination": "/api/index" }
   ]
 }

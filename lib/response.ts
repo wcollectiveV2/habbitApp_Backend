@@ -29,11 +29,14 @@ const ALLOWED_ORIGINS = [
 function isAllowedOrigin(origin: string | undefined): boolean {
   if (!origin) return true; // Allow requests with no origin (mobile apps, Postman, etc.)
   
+  // Normalize origin for comparison
+  const normalizedOrigin = origin.endsWith('/') ? origin.slice(0, -1) : origin;
+
   return ALLOWED_ORIGINS.some(allowed => {
     if (typeof allowed === 'string') {
-      return allowed === origin;
+      return allowed === normalizedOrigin;
     }
-    return allowed.test(origin);
+    return allowed.test(normalizedOrigin);
   });
 }
 
@@ -41,6 +44,8 @@ export function cors(res: VercelResponse, req?: VercelRequest) {
   const rawOrigin = req?.headers?.origin as string | undefined;
   const origin = rawOrigin?.replace(/\/$/, ''); // Normalize origin by removing trailing slash
   
+  console.log(`[CORS Check] Origin: ${origin}, Allowed: ${isAllowedOrigin(origin)}`);
+
   // Set the origin dynamically if it's allowed, otherwise use the first allowed origin
   if (isAllowedOrigin(origin) && origin) {
     res.setHeader('Access-Control-Allow-Origin', origin);
@@ -51,6 +56,7 @@ export function cors(res: VercelResponse, req?: VercelRequest) {
     // Note: Access-Control-Allow-Credentials cannot be 'true' when origin is '*'
   } else {
     // Default to production frontend for disallowed origins (fail safe)
+    console.warn(`[CORS Block] Origin ${origin} not allowed. Defaulting to habbit-app-smoky.`);
     res.setHeader('Access-Control-Allow-Origin', 'https://habbit-app-smoky.vercel.app');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
   }

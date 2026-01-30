@@ -26,12 +26,22 @@ function getDatabaseUrl(): string {
 }
 
 // Serverless-compatible database connection
-export const sql = neon(getDatabaseUrl());
+// Lazy load to prevent top-level await/init crashes
+let _sql: any;
+function getSql() {
+  if (!_sql) _sql = neon(getDatabaseUrl());
+  return _sql;
+}
+
+export const sql = (stringsOrQuery: any, ...values: any[]) => {
+  return getSql()(stringsOrQuery, ...values);
+};
 
 // Helper to run queries
-export async function query<T = any>(queryText: string, params?: any[]): Promise<T[]> {
+export async function query<T = any>(queryText: string, params: any[] = []): Promise<T[]> {
   try {
-    const result = await sql(queryText, params);
+    // @ts-ignore - Neon driver signature handling
+    const result = await getSql()(queryText, params);
     return result as T[];
   } catch (error) {
     console.error('Database query error:', error);

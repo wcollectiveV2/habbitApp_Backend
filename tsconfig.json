@@ -13,6 +13,6 @@
     "resolveJsonModule": true,
     "declaration": true
   },
-  "include": ["api/**/*", "lib/**/*"],
+  "include": ["api/**/*", "lib/**/*", "handlers/**/*", "scripts/**/*"],
   "exclude": ["node_modules", "dist"]
 }
