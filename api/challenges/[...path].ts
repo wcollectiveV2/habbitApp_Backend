@@ -74,7 +74,9 @@ async function getActiveChallenges(userId: string, res: VercelResponse, req: Ver
     // Try to get challenges from DB, return empty array with sample data if table doesn't exist
     try {
       const challenges = await query(
-        `SELECT c.*, cp.progress, cp.completed_days, cp.current_streak,
+        `SELECT c.id, c.title, c.description, c.daily_action, c.type, c.status, c.icon,
+          c.start_date, c.end_date, c.target_days,
+          cp.progress, cp.completed_days, cp.current_streak,
           (SELECT COUNT(*) FROM challenge_participants WHERE challenge_id = c.id) as participant_count,
           GREATEST(0, EXTRACT(DAY FROM c.end_date - NOW()))::int as days_remaining
         FROM challenges c
@@ -83,7 +85,28 @@ async function getActiveChallenges(userId: string, res: VercelResponse, req: Ver
         ORDER BY c.start_date DESC`,
         [userId]
       );
-      return json(res, challenges, 200, req);
+      
+      const formattedChallenges = challenges.map((c: any) => ({
+        id: c.id.toString(),
+        title: c.title,
+        description: c.description,
+        dailyAction: c.daily_action,
+        type: c.type,
+        status: c.status,
+        icon: c.icon,
+        startDate: c.start_date,
+        endDate: c.end_date,
+        targetDays: c.target_days,
+        participantCount: parseInt(c.participant_count || '0'),
+        participants: [], // Placeholder as DB doesn't return list yet
+        progress: c.progress,
+        timeLeft: `${c.days_remaining} days left`,
+        joinedText: `Joined`, 
+        theme: 'primary',
+        extraParticipants: Math.max(0, parseInt(c.participant_count || '0') - 3)
+      }));
+
+      return json(res, formattedChallenges, 200, req);
     } catch (dbError: any) {
       // Return sample challenges if DB tables don't exist yet
       console.log('Challenges table may not exist, returning sample data:', dbError.message);
@@ -158,7 +181,26 @@ async function discoverChallenges(req: VercelRequest, res: VercelResponse) {
       const challenges = await query(queryText, params);
       const total = await query('SELECT COUNT(*) as count FROM challenges WHERE is_public = true', []);
 
-      return json(res, { challenges, total: total[0]?.count || 0 }, 200, req);
+      const formattedChallenges = challenges.map((c: any) => ({
+        id: c.id.toString(),
+        title: c.title,
+        description: c.description,
+        type: c.type,
+        status: c.status,
+        icon: c.icon,
+        startDate: c.start_date,
+        endDate: c.end_date,
+        targetDays: c.target_days,
+        participantCount: parseInt(c.participant_count || '0'),
+        participants: [],
+        progress: 0, // Default for discovered challenges
+        timeLeft: c.end_date ? `${Math.max(0, Math.ceil((new Date(c.end_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))} days left` : '',
+        joinedText: 'Join',
+        theme: 'primary',
+        extraParticipants: Math.max(0, parseInt(c.participant_count || '0') - 3)
+      }));
+
+      return json(res, { challenges: formattedChallenges, total: total[0]?.count || 0 }, 200, req);
     } catch (dbError) {
       // Return sample discoverable challenges
       const sampleChallenges = [

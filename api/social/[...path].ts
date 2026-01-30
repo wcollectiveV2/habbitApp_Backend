@@ -93,14 +93,19 @@ async function getLeaderboard(userId: string, req: VercelRequest, res: VercelRes
 
       const entries = await query(queryText, params);
 
-      // Add ranks
+      // Add ranks and format
       const rankedEntries = entries.map((entry: any, index: number) => ({
-        ...entry,
-        rank: parseInt(offset as string) + index + 1
+        rank: parseInt(offset as string) + index + 1,
+        userId: entry.user_id,
+        name: entry.user_name,
+        avatar: entry.user_avatar,
+        points: parseInt(entry.points),
+        streakDays: parseInt(entry.streak_days),
+        isCurrentUser: entry.is_current_user
       }));
 
       // Get current user's rank if not in list
-      const currentUserRank = rankedEntries.find((e: any) => e.is_current_user);
+      const currentUserRank = rankedEntries.find((e: any) => e.isCurrentUser);
 
       const total = await query('SELECT COUNT(*) as count FROM users', []);
 
@@ -153,9 +158,20 @@ async function getFeed(userId: string, req: VercelRequest, res: VercelResponse) 
 
       const items = await query(queryText, params);
 
+      const formattedItems = items.map((item: any) => ({
+        id: item.id.toString(),
+        userId: item.user_id,
+        userName: item.user_name,
+        userAvatar: item.user_avatar,
+        action: item.activity_type, // Map activity_type to action
+        target: item.title, // Map title to target
+        timestamp: item.created_at,
+        data: item.metadata
+      }));
+
       const hasMore = items.length === parseInt(limit as string);
 
-      return json(res, { items, hasMore }, 200, req);
+      return json(res, { items: formattedItems, hasMore }, 200, req);
     } catch (dbError) {
       // Return sample feed data
       const sampleFeed = [

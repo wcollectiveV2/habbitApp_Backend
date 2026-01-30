@@ -67,7 +67,20 @@ async function listHabits(userId: string, res: VercelResponse, req: VercelReques
       [userId]
     );
 
-    return json(res, { habits }, 200, req);
+    const formattedHabits = habits.map((h: any) => ({
+      id: h.id,
+      name: h.name,
+      description: h.description,
+      frequency: h.frequency,
+      targetCount: h.target_count,
+      category: h.category,
+      isActive: h.is_active,
+      createdAt: h.created_at,
+      updatedAt: h.updated_at,
+      completedToday: h.completed_today
+    }));
+
+    return json(res, { habits: formattedHabits }, 200, req);
   } catch (err: any) {
     return error(res, err.message || 'Failed to list habits', 500, req);
   }
@@ -88,7 +101,20 @@ async function createHabit(userId: string, req: VercelRequest, res: VercelRespon
       [userId, name, description || '', frequency || 'daily', target_count || 1, category || 'general']
     );
 
-    return json(res, { habit: habits[0] }, 201, req);
+    const h = habits[0];
+    const formattedHabit = {
+      id: h.id,
+      name: h.name,
+      description: h.description,
+      frequency: h.frequency,
+      targetCount: h.target_count,
+      category: h.category,
+      isActive: h.is_active,
+      createdAt: h.created_at,
+      updatedAt: h.updated_at
+    };
+
+    return json(res, { habit: formattedHabit }, 201, req);
   } catch (err: any) {
     return error(res, err.message || 'Failed to create habit', 500, req);
   }
@@ -105,7 +131,20 @@ async function getHabit(userId: string, habitId: string, res: VercelResponse, re
       return error(res, 'Habit not found', 404, req);
     }
 
-    return json(res, { habit: habits[0] }, 200, req);
+    const h = habits[0];
+    const formattedHabit = {
+      id: h.id,
+      name: h.name,
+      description: h.description,
+      frequency: h.frequency,
+      targetCount: h.target_count,
+      category: h.category,
+      isActive: h.is_active,
+      createdAt: h.created_at,
+      updatedAt: h.updated_at
+    };
+
+    return json(res, { habit: formattedHabit }, 200, req);
   } catch (err: any) {
     return error(res, err.message || 'Failed to get habit', 500, req);
   }
@@ -133,7 +172,20 @@ async function updateHabit(userId: string, habitId: string, req: VercelRequest, 
       return error(res, 'Habit not found', 404, req);
     }
 
-    return json(res, { habit: habits[0] }, 200, req);
+    const h = habits[0];
+    const formattedHabit = {
+      id: h.id,
+      name: h.name,
+      description: h.description,
+      frequency: h.frequency,
+      targetCount: h.target_count,
+      category: h.category,
+      isActive: h.is_active,
+      createdAt: h.created_at,
+      updatedAt: h.updated_at
+    };
+
+    return json(res, { habit: formattedHabit }, 200, req);
   } catch (err: any) {
     return error(res, err.message || 'Failed to update habit', 500, req);
   }

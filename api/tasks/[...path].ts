@@ -46,7 +46,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 async function getTodayTasks(userId: string, res: VercelResponse, req: VercelRequest) {
   try {
     const tasks = await query(
-      `SELECT t.*, h.name as habit_name, h.category
+      `SELECT t.id, t.title, t.description, t.status, t.due_date, t.completed_at,
+              h.name as habit_name, h.category
        FROM tasks t
        LEFT JOIN habits h ON t.habit_id = h.id
        WHERE t.user_id = $1 AND t.due_date::date = CURRENT_DATE
@@ -54,7 +55,24 @@ async function getTodayTasks(userId: string, res: VercelResponse, req: VercelReq
       [userId]
     );
 
-    return json(res, { tasks }, 200, req);
+    const formattedTasks = tasks.map((t: any) => ({
+      id: t.id,
+      title: t.title,
+      description: t.description,
+      challengeName: t.habit_name || 'General Task',
+      icon: 'check_circle', // Default icon
+      iconBg: 'bg-indigo-500/20', // Default bg
+      iconColor: 'text-indigo-500', // Default color
+      completed: t.status === 'completed',
+      status: t.status,
+      dueDate: t.due_date,
+      currentProgress: t.status === 'completed' ? 1 : 0,
+      totalProgress: 1,
+      progressBlocks: 1,
+      activeBlocks: t.status === 'completed' ? 1 : 0
+    }));
+
+    return json(res, { tasks: formattedTasks }, 200, req);
   } catch (err: any) {
     return error(res, err.message || 'Failed to get tasks', 500, req);
   }
