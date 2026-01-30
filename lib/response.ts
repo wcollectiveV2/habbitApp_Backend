@@ -5,6 +5,8 @@ const ALLOWED_ORIGINS = [
   // Production frontend
   'https://habbit-app-smoky.vercel.app',
   'https://habbit-app.vercel.app',
+  // Admin Dashboard
+  'https://front-back-office-eight.vercel.app',
   // Vercel preview deployments
   /https:\/\/habbit-app[\w-]*\.vercel\.app$/,
   // Local development
