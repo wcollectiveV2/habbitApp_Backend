@@ -28,7 +28,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // GET /api/challenges/discover - Discover challenges
   if (req.method === 'GET' && path.includes('/discover')) {
-    return discoverChallenges(req, res);
+    return discoverChallenges(userId, req, res);
   }
 
   // POST /api/challenges - Create challenge
@@ -63,7 +63,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // GET /api/challenges/:id/leaderboard - Get leaderboard
   if (req.method === 'GET' && challengeId && path.includes('/leaderboard')) {
-    return getChallengeLeaderboard(challengeId, res, req);
+    return getChallengeLeaderboard(userId, challengeId, res, req);
   }
 
   return error(res, 'Not found', 404, req);
@@ -149,19 +149,28 @@ async function getActiveChallenges(userId: string, res: VercelResponse, req: Ver
   }
 }
 
-async function discoverChallenges(req: VercelRequest, res: VercelResponse) {
+async function discoverChallenges(userId: string, req: VercelRequest, res: VercelResponse) {
   try {
     const { type, search, limit = '20', offset = '0' } = req.query;
     
     try {
+      // Logic: Show public global challenges OR challenges from user's organizations
       let queryText = `
         SELECT c.*, 
-          (SELECT COUNT(*) FROM challenge_participants WHERE challenge_id = c.id) as participant_count
+          (SELECT COUNT(*) FROM challenge_participants WHERE challenge_id = c.id) as participant_count,
+          (SELECT COUNT(*) > 0 FROM challenge_participants cp WHERE cp.challenge_id = c.id AND cp.user_id = $1) as is_joined
         FROM challenges c
-        WHERE c.is_public = true AND c.status IN ('upcoming', 'active')
+        LEFT JOIN organization_members om ON c.organization_id = om.organization_id AND om.user_id = $1
+        WHERE 
+          c.status IN ('upcoming', 'active')
+          AND (
+             (c.organization_id IS NULL AND c.is_public = true)
+             OR 
+             (c.organization_id IS NOT NULL AND om.id IS NOT NULL AND om.status = 'active')
+          )
       `;
-      const params: any[] = [];
-      let paramCount = 0;
+      const params: any[] = [userId];
+      let paramCount = 1;
 
       if (type) {
         paramCount++;
@@ -179,7 +188,21 @@ async function discoverChallenges(req: VercelRequest, res: VercelResponse) {
       params.push(parseInt(limit as string), parseInt(offset as string));
 
       const challenges = await query(queryText, params);
-      const total = await query('SELECT COUNT(*) as count FROM challenges WHERE is_public = true', []);
+      
+      // Get total count for pagination
+      const totalQuery = `
+        SELECT COUNT(*) as count 
+        FROM challenges c
+        LEFT JOIN organization_members om ON c.organization_id = om.organization_id AND om.user_id = $1
+        WHERE 
+          c.status IN ('upcoming', 'active')
+          AND (
+             (c.organization_id IS NULL AND c.is_public = true)
+             OR 
+             (c.organization_id IS NOT NULL AND om.id IS NOT NULL AND om.status = 'active')
+          )
+      `;
+      const total = await query(totalQuery, [userId]);
 
       const formattedChallenges = challenges.map((c: any) => ({
         id: c.id.toString(),
@@ -188,6 +211,7 @@ async function discoverChallenges(req: VercelRequest, res: VercelResponse) {
         type: c.type,
         status: c.status,
         icon: c.icon,
+        organizationId: c.organization_id,
         startDate: c.start_date,
         endDate: c.end_date,
         targetDays: c.target_days,
@@ -195,7 +219,8 @@ async function discoverChallenges(req: VercelRequest, res: VercelResponse) {
         participants: [],
         progress: 0, // Default for discovered challenges
         timeLeft: c.end_date ? `${Math.max(0, Math.ceil((new Date(c.end_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))} days left` : '',
-        joinedText: 'Join',
+        joinedText: c.is_joined ? 'Joined' : 'Join',
+        isJoined: c.is_joined,
         theme: 'primary',
         extraParticipants: Math.max(0, parseInt(c.participant_count || '0') - 3)
       }));
@@ -345,8 +370,9 @@ async function getChallenge(userId: string, challengeId: string, res: VercelResp
         participants,
         isJoined: isJoined.length > 0
       }, 200, req);
-    } catch (dbError) {
-      return error(res, 'Challenge not found', 404, req);
+    } catch (dbError: any) {
+      console.error('Error fetching challenge:', dbError);
+      return error(res, 'Error fetching challenge: ' + dbError.message, 500, req);
     }
   } catch (err: any) {
     return error(res, err.message || 'Failed to get challenge', 500, req);
@@ -538,16 +564,25 @@ async function logChallengeProgress(userId: string, challengeId: string, req: Ve
   }
 }
 
-async function getChallengeLeaderboard(challengeId: string, res: VercelResponse, req: VercelRequest) {
+async function getChallengeLeaderboard(userId: string, challengeId: string, res: VercelResponse, req: VercelRequest) {
   try {
     try {
       const participants = await query(
-        `SELECT cp.*, u.name as user_name, u.avatar_url as user_avatar
+        `SELECT cp.*, 
+          CASE 
+            WHEN u.privacy_challenge_leaderboard = 'anonymous' AND u.id != $2 THEN 'Anonymous User'
+            ELSE u.name 
+          END as user_name, 
+          CASE 
+             WHEN u.privacy_challenge_leaderboard = 'anonymous' AND u.id != $2 THEN NULL 
+             ELSE u.avatar_url 
+          END as user_avatar
         FROM challenge_participants cp
         JOIN users u ON cp.user_id = u.id
         WHERE cp.challenge_id = $1
+          AND (u.privacy_challenge_leaderboard IS DISTINCT FROM 'hidden' OR u.id = $2)
         ORDER BY cp.progress DESC, cp.completed_days DESC`,
-        [challengeId]
+        [challengeId, userId]
       );
 
       return json(res, participants, 200, req);

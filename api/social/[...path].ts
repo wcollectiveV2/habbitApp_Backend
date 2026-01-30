@@ -70,18 +70,27 @@ async function getLeaderboard(userId: string, req: VercelRequest, res: VercelRes
 
     try {
       let queryText = `
-        SELECT u.id as user_id, u.name as user_name, u.avatar_url as user_avatar, 
+        SELECT u.id as user_id, 
+               CASE 
+                 WHEN u.privacy_public_leaderboard = 'anonymous' AND u.id != $1 THEN 'Anonymous User'
+                 ELSE u.name 
+               END as user_name, 
+               CASE 
+                 WHEN u.privacy_public_leaderboard = 'anonymous' AND u.id != $1 THEN NULL 
+                 ELSE u.avatar_url 
+               END as user_avatar, 
                COALESCE(u.total_points, 0) as points, 
                COALESCE(u.current_streak, 0) as streak_days,
                u.id = $1 as is_current_user
         FROM users u
+        WHERE (u.privacy_public_leaderboard IS DISTINCT FROM 'hidden' OR u.id = $1)
       `;
 
       const params: any[] = [userId];
 
       if (scope === 'friends') {
         queryText += `
-          WHERE u.id IN (
+          AND u.id IN (
             SELECT following_id FROM user_follows WHERE follower_id = $1
             UNION SELECT $1
           )

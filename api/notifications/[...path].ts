@@ -37,6 +37,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return markAsRead(userId, notificationId, req, res);
   }
 
+  // POST /api/notifications/:id/accept - Accept invitation
+  if (req.method === 'POST' && lastPart === 'accept' && secondLastPart) {
+    const notificationId = secondLastPart;
+    return acceptNotification(userId, notificationId, req, res);
+  }
+
   // POST /api/notifications/mark-all-read
   if (req.method === 'POST' && lastPart === 'mark-all-read') {
     return markAllAsRead(userId, req, res);
@@ -85,6 +91,62 @@ async function getNotifications(userId: string, req: VercelRequest, res: VercelR
   } catch (err) {
     console.error('Error fetching notifications:', err);
     return error(res, 'Failed to fetch notifications');
+  }
+}
+
+async function acceptNotification(userId: string, notificationId: string, req: VercelRequest, res: VercelResponse) {
+  try {
+    const notifications = await query('SELECT * FROM notifications WHERE id = $1 AND user_id = $2', [notificationId, userId]);
+    if (notifications.length === 0) return error(res, 'Notification not found', 404, req);
+    
+    const notification = notifications[0];
+    
+    // Logic for ORG_INVITE
+    if (notification.type === 'ORG_INVITE') {
+      const { organizationId, pendingChallengeId, role } = notification.data || {};
+      
+      // Add to organization
+      await query(
+        `INSERT INTO organization_members (organization_id, user_id, role, status)
+         VALUES ($1, $2, $3, 'active')
+         ON CONFLICT (organization_id, user_id) DO UPDATE SET status = 'active'`,
+        [organizationId, userId, role || 'member']
+      );
+      
+      // If there was a pending challenge invite, send it now
+      if (pendingChallengeId) {
+         const challenge = await query('SELECT title FROM challenges WHERE id = $1', [pendingChallengeId]);
+         const challengeTitle = challenge[0]?.title || 'Unknown Challenge';
+         
+         await query(
+           `INSERT INTO notifications (user_id, type, title, message, data)
+            VALUES ($1, 'CHALLENGE_INVITE', $2, $3, $4)`,
+           [
+             userId, 
+             'CHALLENGE_INVITE', 
+             `Join ${challengeTitle}`, 
+             `You have been invited to join the challenge: ${challengeTitle}`, 
+             { challengeId: pendingChallengeId, organizationId }
+           ]
+         );
+      }
+    }
+    
+    // Logic for CHALLENGE_INVITE
+    else if (notification.type === 'CHALLENGE_INVITE') {
+        const { challengeId } = notification.data || {};
+         await query(
+        `INSERT INTO challenge_participants (challenge_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [challengeId, userId]
+      );
+    }
+    
+    // Mark as read
+    await query('UPDATE notifications SET is_read = true WHERE id = $1', [notificationId]);
+    
+    return json(res, { success: true }, 200, req);
+  } catch (err: any) {
+    return error(res, err.message || 'Failed to accept notification', 500, req);
   }
 }
 

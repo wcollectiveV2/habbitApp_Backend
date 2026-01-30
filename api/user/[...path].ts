@@ -58,8 +58,10 @@ async function getProfile(userId: string, res: VercelResponse, req: VercelReques
       current_streak?: number;
       total_points?: number;
       created_at: string;
+      privacy_public_leaderboard?: string;
+      privacy_challenge_leaderboard?: string;
     }>(
-      'SELECT id, email, name, avatar_url, bio, current_streak, total_points, created_at FROM users WHERE id = $1',
+      'SELECT id, email, name, avatar_url, bio, current_streak, total_points, created_at, privacy_public_leaderboard, privacy_challenge_leaderboard FROM users WHERE id = $1',
       [userId]
     );
 
@@ -80,9 +82,11 @@ async function getProfile(userId: string, res: VercelResponse, req: VercelReques
       totalPoints: user.total_points || 0,
       currentXp: user.total_points || 0,
       level: Math.floor((user.total_points || 0) / 100) + 1,
-      privacyShowLeaderboard: true,
+      privacyShowLeaderboard: user.privacy_public_leaderboard !== 'hidden',
       privacyShowActivity: true,
       privacyAllowFollowers: true,
+      privacyPublicLeaderboard: user.privacy_public_leaderboard || 'visible',
+      privacyChallengeLeaderboard: user.privacy_challenge_leaderboard || 'visible',
     }, 200, req);
   } catch (err: any) {
     return error(res, err.message || 'Failed to get profile', 500, req);
@@ -91,22 +95,44 @@ async function getProfile(userId: string, res: VercelResponse, req: VercelReques
 
 async function updateProfile(userId: string, req: VercelRequest, res: VercelResponse) {
   try {
-    const { name, avatar_url, avatarUrl, bio } = req.body;
+    const { 
+      name, 
+      avatar_url, 
+      avatarUrl, 
+      bio, 
+      privacyPublicLeaderboard, 
+      privacyChallengeLeaderboard 
+    } = req.body;
 
-    const users = await query<{ id: string; email: string; name: string; avatar_url?: string; bio?: string; current_streak?: number; total_points?: number }>(
+    const users = await query<{ 
+      id: string; 
+      email: string; 
+      name: string; 
+      avatar_url?: string; 
+      bio?: string; 
+      current_streak?: number; 
+      total_points?: number;
+      privacy_public_leaderboard?: string;
+      privacy_challenge_leaderboard?: string;
+    }>(
       `UPDATE users SET 
         name = COALESCE($1, name), 
         avatar_url = COALESCE($2, avatar_url),
         bio = COALESCE($3, bio),
+        privacy_public_leaderboard = COALESCE($4, privacy_public_leaderboard),
+        privacy_challenge_leaderboard = COALESCE($5, privacy_challenge_leaderboard),
         updated_at = NOW()
-      WHERE id = $4 
-      RETURNING id, email, name, avatar_url, bio, current_streak, total_points`,
-      [name, avatar_url || avatarUrl, bio, userId]
+       WHERE id = $6
+       RETURNING id, email, name, avatar_url, bio, current_streak, total_points, privacy_public_leaderboard, privacy_challenge_leaderboard`,
+      [
+        name, 
+        avatar_url || avatarUrl, 
+        bio, 
+        privacyPublicLeaderboard,
+        privacyChallengeLeaderboard,
+        userId
+      ]
     );
-
-    if (users.length === 0) {
-      return error(res, 'User not found', 404, req);
-    }
 
     const user = users[0];
     return json(res, {
@@ -116,11 +142,16 @@ async function updateProfile(userId: string, req: VercelRequest, res: VercelResp
       email: user.email,
       avatarUrl: user.avatar_url,
       avatar: user.avatar_url,
-      bio: user.bio || '',
+      bio: user.bio,
       streakCount: user.current_streak || 0,
       totalPoints: user.total_points || 0,
       currentXp: user.total_points || 0,
       level: Math.floor((user.total_points || 0) / 100) + 1,
+      privacyShowLeaderboard: user.privacy_public_leaderboard !== 'hidden',
+      privacyShowActivity: true,
+      privacyAllowFollowers: true,
+      privacyPublicLeaderboard: user.privacy_public_leaderboard || 'visible',
+      privacyChallengeLeaderboard: user.privacy_challenge_leaderboard || 'visible',
     }, 200, req);
   } catch (err: any) {
     return error(res, err.message || 'Failed to update profile', 500, req);
