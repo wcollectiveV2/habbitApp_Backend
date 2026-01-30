@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS challenges (
   id SERIAL PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
   description TEXT,
+  daily_action VARCHAR(255),
   type VARCHAR(50) DEFAULT 'individual',
   status VARCHAR(50) DEFAULT 'upcoming',
   icon VARCHAR(100) DEFAULT 'flag',

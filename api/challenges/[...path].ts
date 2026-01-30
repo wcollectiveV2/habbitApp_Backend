@@ -92,6 +92,7 @@ async function getActiveChallenges(userId: string, res: VercelResponse, req: Ver
           id: 1,
           title: 'Hydration Hero',
           description: 'Drink 8 glasses of water daily',
+          daily_action: 'Drink 8 glasses of water',
           type: 'individual',
           status: 'active',
           icon: 'water_drop',
@@ -106,6 +107,7 @@ async function getActiveChallenges(userId: string, res: VercelResponse, req: Ver
           id: 2,
           title: 'Morning Meditation',
           description: 'Start each day with 10 minutes of mindfulness',
+          daily_action: 'Meditate for 10 minutes',
           type: 'group',
           status: 'active',
           icon: 'self_improvement',
@@ -164,17 +166,23 @@ async function discoverChallenges(req: VercelRequest, res: VercelResponse) {
           id: 3,
           title: '30 Day Fitness',
           description: 'Daily exercise for 30 days',
+          daily_action: 'Exercise for 30 minutes',
           type: 'competitive',
           status: 'active',
+          icon: 'fitness_center',
           participantCount: 45,
+          targetDays: 30,
         },
         {
           id: 4,
           title: 'Reading Challenge',
           description: 'Read for 20 minutes every day',
+          daily_action: 'Read for 20 minutes',
           type: 'group',
           status: 'upcoming',
+          icon: 'menu_book',
           participantCount: 23,
+          targetDays: 30,
         }
       ];
       return json(res, { challenges: sampleChallenges, total: 2 }, 200, req);
@@ -327,8 +335,17 @@ async function getChallengeProgress(userId: string, challengeId: string, res: Ve
         isOnTrack: completedDays >= (challenge?.target_days || 30) - daysRemaining
       }, 200, req);
     } catch (dbError) {
+      // Map challengeId to sample data
+      const sampleChallenges: Record<string, any> = {
+        '1': { id: 1, title: 'Hydration Hero', daily_action: 'Drink 8 glasses of water', targetDays: 21, icon: 'water_drop' },
+        '2': { id: 2, title: 'Morning Meditation', daily_action: 'Meditate for 10 minutes', targetDays: 30, icon: 'self_improvement' },
+        '3': { id: 3, title: '30 Day Fitness', daily_action: 'Exercise for 30 minutes', targetDays: 30, icon: 'fitness_center' },
+        '4': { id: 4, title: 'Reading Challenge', daily_action: 'Read for 20 minutes', targetDays: 30, icon: 'menu_book' },
+      };
+      const challenge = sampleChallenges[challengeId] || { id: challengeId, title: 'Challenge', daily_action: 'Complete daily goal', targetDays: 30 };
+      
       return json(res, {
-        challenge: { id: challengeId, title: 'Challenge', targetDays: 30 },
+        challenge,
         participant: { progress: 0, completedDays: 0, currentStreak: 0 },
         dailyLogs: [],
         daysRemaining: 30,
