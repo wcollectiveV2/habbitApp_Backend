@@ -14,33 +14,129 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const path = req.url?.split('?')[0] || '';
   const parts = path.split('/');
   // /api/organizations/:id/invite ... parts: ['', 'api', 'organizations', 'id', 'invite']
-  const orgId = parts[3]; 
-  const action = parts[4]; // invite
+  // /api/organizations ... parts: ['', 'api', 'organizations']
+  const orgId = (parts.length > 3 && parts[3]) ? parts[3] : null; 
+  const action = (parts.length > 4) ? parts[4] : null;
 
   if (req.method === 'POST' && orgId && action === 'invite') {
     return inviteMember(userId, orgId, req, res);
   }
 
   // GET /api/organizations
-  if (req.method === 'GET' && (!orgId || orgId === '')) {
-      return getMyOrganizations(userId, req, res);
+  if (req.method === 'GET' && !orgId) {
+      return listOrganizations(userId, req, res);
+  }
+  
+  // POST /api/organizations (Create)
+  if (req.method === 'POST' && !orgId) {
+      return createOrganization(userId, req, res);
+  }
+
+  // PUT /api/organizations/:id
+  if (req.method === 'PUT' && orgId && !action) {
+      return updateOrganization(userId, orgId, req, res);
+  }
+
+  // DELETE /api/organizations/:id
+  if (req.method === 'DELETE' && orgId && !action) {
+      return deleteOrganization(userId, orgId, req, res);
   }
 
   return error(res, 'Not found', 404, req);
 }
 
-async function getMyOrganizations(userId: string, req: VercelRequest, res: VercelResponse) {
+async function listOrganizations(userId: string, req: VercelRequest, res: VercelResponse) {
     try {
-        const orgs = await query(
-            `SELECT o.*, om.role FROM organizations o 
-             JOIN organization_members om ON o.id = om.organization_id 
-             WHERE om.user_id = $1 AND om.status = 'active'`,
-            [userId]
-        );
+        const auth = getAuthFromRequest(req);
+        const isAdmin = (auth?.permissions || []).includes('admin');
+        
+        let orgs;
+        if (isAdmin) {
+             orgs = await query('SELECT * FROM organizations ORDER BY created_at DESC');
+        } else {
+             orgs = await query(
+                `SELECT o.*, om.role FROM organizations o 
+                 JOIN organization_members om ON o.id = om.organization_id 
+                 WHERE om.user_id = $1 AND om.status = 'active'`,
+                [userId]
+            );
+        }
         return json(res, orgs, 200, req);
     } catch (e: any) {
         return error(res, 'Failed to fetch organizations', 500, req);
     }
+}
+
+async function createOrganization(userId: string, req: VercelRequest, res: VercelResponse) {
+    try {
+        const { name, logo_url } = req.body;
+        if (!name) return error(res, 'Name required', 400, req);
+        
+        const result = await query(
+            'INSERT INTO organizations (name, logo_url) VALUES ($1, $2) RETURNING *',
+            [name, logo_url]
+        );
+        const org = result[0];
+        
+        // Add creator as admin
+        await query(
+            `INSERT INTO organization_members (organization_id, user_id, role, status)
+             VALUES ($1, $2, 'admin', 'active')`,
+            [org.id, userId]
+        );
+        
+        return json(res, org, 201, req);
+    } catch (e: any) {
+        console.error(e);
+        return error(res, 'Failed to create organization', 500, req);
+    }
+}
+
+async function updateOrganization(userId: string, orgId: string, req: VercelRequest, res: VercelResponse) {
+    try {
+        const { name, logo_url } = req.body;
+        
+        // Check permission (admin or org admin)
+        const membership = await query(
+             `SELECT role FROM organization_members WHERE organization_id = $1 AND user_id = $2`,
+             [orgId, userId]
+        );
+        const auth = getAuthFromRequest(req);
+        const isGlobalAdmin = (auth?.permissions || []).includes('admin');
+        const isOrgAdmin = membership.length > 0 && membership[0].role === 'admin';
+        
+        if (!isGlobalAdmin && !isOrgAdmin) {
+            return error(res, 'Forbidden', 403, req);
+        }
+        
+        const result = await query(
+            'UPDATE organizations SET name = COALESCE($1, name), logo_url = COALESCE($2, logo_url), updated_at = NOW() WHERE id = $3 RETURNING *',
+            [name, logo_url, orgId]
+        );
+        
+        return json(res, result[0], 200, req);
+    } catch (e: any) {
+         return error(res, 'Failed to update organization', 500, req);
+    }
+}
+
+async function deleteOrganization(userId: string, orgId: string, req: VercelRequest, res: VercelResponse) {
+    try {
+        const auth = getAuthFromRequest(req);
+        if (!(auth?.permissions || []).includes('admin')) {
+            return error(res, 'Forbidden. Only admins can delete organizations.', 403, req);
+        }
+        
+        await query('DELETE FROM organizations WHERE id = $1', [orgId]);
+        return json(res, { message: 'Organization deleted' }, 200, req);
+    } catch (e: any) {
+        return error(res, 'Failed to delete organization', 500, req);
+    }
+}
+
+async function getMyOrganizations(userId: string, req: VercelRequest, res: VercelResponse) {
+    // Deprecated by listOrganizations but keeping logic if needed
+    return listOrganizations(userId, req, res);
 }
 
 async function inviteMember(managerId: string, orgId: string, req: VercelRequest, res: VercelResponse) {
