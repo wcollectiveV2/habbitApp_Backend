@@ -50,6 +50,12 @@ CREATE TABLE IF NOT EXISTS tasks (
   title VARCHAR(255) NOT NULL,
   description TEXT,
   status VARCHAR(50) DEFAULT 'pending',
+  type VARCHAR(50) DEFAULT 'check', -- 'check', 'counter', 'log'
+  goal INT DEFAULT 1,
+  current_value INT DEFAULT 0,
+  unit VARCHAR(50),
+  step INT DEFAULT 1,
+  icon VARCHAR(100),
   priority VARCHAR(50) DEFAULT 'medium',
   due_date TIMESTAMP,
   completed_at TIMESTAMP,
@@ -208,3 +214,44 @@ INSERT INTO challenges (title, description, type, status, icon, is_public, start
   ('Cold Shower Warriors', 'Take a cold shower every morning to boost energy', 'competitive', 'upcoming', 'shower', true, NOW() + INTERVAL '5 days', NOW() + INTERVAL '19 days', 14),
   ('Language Learning', 'Practice a new language for 15 minutes daily', 'individual', 'active', 'translate', true, NOW() - INTERVAL '12 days', NOW() + INTERVAL '48 days', 60)
 ON CONFLICT DO NOTHING;
+
+-- ============================================================================
+-- Protocols
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS protocols (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  creator_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  is_public BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS protocol_elements (
+  id SERIAL PRIMARY KEY,
+  protocol_id INT NOT NULL REFERENCES protocols(id) ON DELETE CASCADE,
+  title VARCHAR(255) NOT NULL,
+  type VARCHAR(50) DEFAULT 'check',
+  unit VARCHAR(50),
+  goal INT,
+  frequency VARCHAR(50) DEFAULT 'daily',
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS user_protocols (
+  id SERIAL PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  protocol_id INT NOT NULL REFERENCES protocols(id) ON DELETE CASCADE,
+  assigned_at TIMESTAMP DEFAULT NOW(),
+  assigned_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  UNIQUE(user_id, protocol_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_protocols_creator ON protocols(creator_id);
+CREATE INDEX IF NOT EXISTS idx_protocol_elements_protocol ON protocol_elements(protocol_id);
+CREATE INDEX IF NOT EXISTS idx_user_protocols_user ON user_protocols(user_id);
+
+-- Users Roles
+ALTER TABLE users ADD COLUMN IF NOT EXISTS roles TEXT[] DEFAULT ARRAY['user'];

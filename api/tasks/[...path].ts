@@ -47,6 +47,7 @@ async function getTodayTasks(userId: string, res: VercelResponse, req: VercelReq
   try {
     const tasks = await query(
       `SELECT t.id, t.title, t.description, t.status, t.due_date, t.completed_at,
+              t.type, t.goal, t.current_value, t.unit, t.step, t.icon,
               h.name as habit_name, h.category
        FROM tasks t
        LEFT JOIN habits h ON t.habit_id = h.id
@@ -60,16 +61,25 @@ async function getTodayTasks(userId: string, res: VercelResponse, req: VercelReq
       title: t.title,
       description: t.description,
       challengeName: t.habit_name || 'General Task',
-      icon: 'check_circle', // Default icon
+      icon: t.icon || 'check_circle',
       iconBg: 'bg-indigo-500/20', // Default bg
       iconColor: 'text-indigo-500', // Default color
       completed: t.status === 'completed',
       status: t.status,
       dueDate: t.due_date,
-      currentProgress: t.status === 'completed' ? 1 : 0,
-      totalProgress: 1,
-      progressBlocks: 1,
-      activeBlocks: t.status === 'completed' ? 1 : 0
+      type: t.type || 'check',
+      goal: t.goal || 1,
+      currentValue: t.current_value || 0,
+      unit: t.unit,
+      step: t.step || 1,
+      currentProgress: t.type === 'check' 
+          ? (t.status === 'completed' ? 1 : 0) 
+          : (t.current_value || 0),
+      totalProgress: t.type === 'check' ? 1 : (t.goal || 1),
+      progressBlocks: t.type === 'check' ? 1 : (t.goal || 1), // Simplistic, might need adjustment for large numbers
+      activeBlocks: t.type === 'check' 
+          ? (t.status === 'completed' ? 1 : 0) 
+          : (t.current_value || 0)
     }));
 
     return json(res, { tasks: formattedTasks }, 200, req);
@@ -80,17 +90,26 @@ async function getTodayTasks(userId: string, res: VercelResponse, req: VercelReq
 
 async function createTask(userId: string, req: VercelRequest, res: VercelResponse) {
   try {
-    const { title, description, habit_id, due_date, priority } = req.body;
+    const { 
+      title, description, habit_id, due_date, priority,
+      type, goal, unit, step, icon 
+    } = req.body;
 
     if (!title) {
       return error(res, 'Task title is required', 400, req);
     }
 
     const tasks = await query(
-      `INSERT INTO tasks (user_id, title, description, habit_id, due_date, priority)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO tasks (
+          user_id, title, description, habit_id, due_date, priority,
+          type, goal, unit, step, icon
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
-      [userId, title, description || '', habit_id || null, due_date || new Date().toISOString(), priority || 'medium']
+      [
+        userId, title, description || '', habit_id || null, due_date || new Date().toISOString(), priority || 'medium',
+        type || 'check', goal || 1, unit || null, step || 1, icon || 'check_circle'
+      ]
     );
 
     return json(res, { task: tasks[0] }, 201, req);
@@ -101,7 +120,7 @@ async function createTask(userId: string, req: VercelRequest, res: VercelRespons
 
 async function updateTask(userId: string, taskId: string, req: VercelRequest, res: VercelResponse) {
   try {
-    const { title, description, status, priority, completed_at } = req.body;
+    const { title, description, status, priority, completed_at, current_value, value } = req.body;
 
     const tasks = await query(
       `UPDATE tasks 
@@ -110,10 +129,11 @@ async function updateTask(userId: string, taskId: string, req: VercelRequest, re
            status = COALESCE($3, status),
            priority = COALESCE($4, priority),
            completed_at = COALESCE($5, completed_at),
+           current_value = COALESCE($6, current_value),
            updated_at = NOW()
-       WHERE id = $6 AND user_id = $7
+       WHERE id = $7 AND user_id = $8
        RETURNING *`,
-      [title, description, status, priority, completed_at, taskId, userId]
+      [title, description, status, priority, completed_at, value ?? current_value, taskId, userId]
     );
 
     if (tasks.length === 0) {
