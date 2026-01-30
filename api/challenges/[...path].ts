@@ -327,8 +327,11 @@ async function getChallenge(userId: string, challengeId: string, res: VercelResp
     try {
       const challenges = await query(
         `SELECT c.*, 
-          (SELECT COUNT(*) FROM challenge_participants WHERE challenge_id = c.id) as participant_count
-        FROM challenges c WHERE c.id = $1`,
+          (SELECT COUNT(*) FROM challenge_participants WHERE challenge_id = c.id) as participant_count,
+          u.name as creator_name
+        FROM challenges c
+        LEFT JOIN users u ON c.created_by = u.id
+        WHERE c.id = $1`,
         [challengeId]
       );
 
@@ -351,7 +354,7 @@ async function getChallenge(userId: string, challengeId: string, res: VercelResp
       );
 
       const participants = await query(
-        `SELECT cp.*, u.name as user_name, u.avatar_url as user_avatar
+        `SELECT cp.*, u.name as user_name, u.avatar_url as user_avatar, u.total_points as user_points
         FROM challenge_participants cp
         JOIN users u ON cp.user_id = u.id
         WHERE cp.challenge_id = $1
@@ -360,15 +363,27 @@ async function getChallenge(userId: string, challengeId: string, res: VercelResp
         [challengeId]
       );
 
-      const isJoined = await query(
-        `SELECT id FROM challenge_participants WHERE challenge_id = $1 AND user_id = $2`,
+      const userParticipant = await query(
+        `SELECT * FROM challenge_participants WHERE challenge_id = $1 AND user_id = $2`,
         [challengeId, userId]
       );
+      
+      const isJoined = userParticipant.length > 0;
+      const currentUserProgress = isJoined ? {
+          ...userParticipant[0],
+          points: Math.round((userParticipant[0].progress || 0) * 10), // Simple points calculation
+      } : null;
 
       return json(res, {
-        challenge: { ...challenges[0], tasks },
+        challenge: { 
+            ...challenges[0], 
+            tasks,
+            creatorName: challenges[0].creator_name || 'HabitPulse Team',
+            rewards: challenges[0].rewards || { xp: 100, badge: 'Participant' } 
+        },
         participants,
-        isJoined: isJoined.length > 0
+        currentUserProgress,
+        isJoined
       }, 200, req);
     } catch (dbError: any) {
       console.error('Error fetching challenge:', dbError);

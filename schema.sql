@@ -38,9 +38,10 @@ CREATE TABLE IF NOT EXISTS habit_logs (
   habit_id UUID NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   completed_at TIMESTAMP DEFAULT NOW(),
-  notes TEXT,
-  UNIQUE(habit_id, user_id, (completed_at::date))
+  notes TEXT
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_habit_logs_unique_daily ON habit_logs (habit_id, user_id, (completed_at::date));
 
 -- Tasks table
 CREATE TABLE IF NOT EXISTS tasks (
@@ -94,6 +95,7 @@ CREATE TABLE IF NOT EXISTS challenges (
   status VARCHAR(50) DEFAULT 'upcoming',
   icon VARCHAR(100) DEFAULT 'flag',
   is_public BOOLEAN DEFAULT true,
+  rewards JSONB DEFAULT '{"xp": 100, "badge": "Challenge Completer"}',
   start_date TIMESTAMP DEFAULT NOW(),
   end_date TIMESTAMP NOT NULL,
   target_days INT DEFAULT 21,
@@ -178,7 +180,8 @@ CREATE TABLE IF NOT EXISTS challenge_tasks (
   type VARCHAR(50) NOT NULL DEFAULT 'boolean',
   target_value INT,
   unit VARCHAR(50),
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(challenge_id, title)
 );
 
 CREATE INDEX IF NOT EXISTS idx_challenge_tasks_challenge_id ON challenge_tasks(challenge_id);

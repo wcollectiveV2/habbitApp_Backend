@@ -1,0 +1,1 @@
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS rewards JSONB DEFAULT '{"xp": 100}';
