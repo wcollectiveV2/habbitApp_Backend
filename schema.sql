@@ -158,6 +158,35 @@ CREATE INDEX IF NOT EXISTS idx_activity_feed_user ON activity_feed(user_id);
 -- ('test@example.com', '$2b$10$rQZ8kHxVJgQjH1M7TJqV5uF8h8nqWQ9BqVN8s3mM5A0uP6YzQJ6Gy', 'Test User');
 
 -- ============================================================================
+-- Challenge Tasks
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS challenge_tasks (
+  id SERIAL PRIMARY KEY,
+  challenge_id INT NOT NULL REFERENCES challenges(id) ON DELETE CASCADE,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  type VARCHAR(50) NOT NULL DEFAULT 'boolean',
+  target_value INT,
+  unit VARCHAR(50),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_challenge_tasks_challenge_id ON challenge_tasks(challenge_id);
+
+CREATE TABLE IF NOT EXISTS challenge_task_logs (
+  id SERIAL PRIMARY KEY,
+  task_id INT NOT NULL REFERENCES challenge_tasks(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  value INT,
+  log_date DATE DEFAULT CURRENT_DATE,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_challenge_task_logs_task_id ON challenge_task_logs(task_id);
+CREATE INDEX IF NOT EXISTS idx_challenge_task_logs_user_date ON challenge_task_logs(user_id, log_date);
+
+-- ============================================================================
 -- Seed Challenges Data
 -- Run this to populate the challenges table with sample data
 -- ============================================================================

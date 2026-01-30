@@ -194,7 +194,7 @@ async function discoverChallenges(req: VercelRequest, res: VercelResponse) {
 
 async function createChallenge(userId: string, req: VercelRequest, res: VercelResponse) {
   try {
-    const { title, description, type, startDate, endDate, targetDays, isPublic, maxParticipants, habitTemplate, rewards } = req.body;
+    const { title, description, type, startDate, endDate, targetDays, isPublic, tasks, daily_action, icon } = req.body;
 
     if (!title) {
       return error(res, 'Challenge title is required', 400, req);
@@ -202,21 +202,53 @@ async function createChallenge(userId: string, req: VercelRequest, res: VercelRe
 
     try {
       const challenges = await query(
-        `INSERT INTO challenges (title, description, type, creator_id, start_date, end_date, target_days, is_public, max_participants, habit_template, rewards)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        `INSERT INTO challenges (title, description, type, created_by, start_date, end_date, target_days, is_public, daily_action, icon)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING *`,
-        [title, description, type || 'individual', userId, startDate, endDate, targetDays || 30, isPublic ?? true, maxParticipants, JSON.stringify(habitTemplate), JSON.stringify(rewards)]
+        [
+          title, 
+          description, 
+          type || 'individual', 
+          userId, 
+          startDate, 
+          endDate, 
+          targetDays || 30, 
+          isPublic ?? true,
+          daily_action || (tasks && tasks[0]?.title), 
+          icon || 'flag'
+        ]
       );
+
+      const challenge = challenges[0];
+
+      // Insert tasks
+      if (tasks && Array.isArray(tasks)) {
+        for (const task of tasks) {
+          await query(
+            `INSERT INTO challenge_tasks (challenge_id, title, description, type, target_value, unit)
+            VALUES ($1, $2, $3, $4, $5, $6)`,
+            [
+              challenge.id, 
+              task.title, 
+              task.description,
+              task.type || 'boolean', 
+              task.targetValue || 1, 
+              task.unit
+            ]
+          );
+        }
+      }
 
       // Auto-join creator to the challenge
       await query(
         `INSERT INTO challenge_participants (challenge_id, user_id) VALUES ($1, $2)`,
-        [challenges[0].id, userId]
+        [challenge.id, userId]
       );
 
-      return json(res, { challenge: challenges[0] }, 201, req);
+      return json(res, { challenge }, 201, req);
     } catch (dbError: any) {
-      return error(res, 'Challenge creation not available yet - database setup required', 503, req);
+      console.error('DB error creating challenge:', dbError);
+      return error(res, 'Challenge creation failed: ' + dbError.message, 500, req);
     }
   } catch (err: any) {
     return error(res, err.message || 'Failed to create challenge', 500, req);
@@ -237,6 +269,20 @@ async function getChallenge(userId: string, challengeId: string, res: VercelResp
         return error(res, 'Challenge not found', 404, req);
       }
 
+      // Fetch tasks with today's progress
+      const tasks = await query(
+        `SELECT ct.*, 
+          COALESCE((
+            SELECT SUM(value) 
+            FROM challenge_task_logs 
+            WHERE task_id = ct.id AND user_id = $2 AND log_date = CURRENT_DATE
+          ), 0) as current_value
+        FROM challenge_tasks ct 
+        WHERE challenge_id = $1 
+        ORDER BY id`,
+        [challengeId, userId]
+      );
+
       const participants = await query(
         `SELECT cp.*, u.name as user_name, u.avatar_url as user_avatar
         FROM challenge_participants cp
@@ -253,7 +299,7 @@ async function getChallenge(userId: string, challengeId: string, res: VercelResp
       );
 
       return json(res, {
-        challenge: challenges[0],
+        challenge: { ...challenges[0], tasks },
         participants,
         isJoined: isJoined.length > 0
       }, 200, req);
@@ -359,18 +405,58 @@ async function getChallengeProgress(userId: string, challengeId: string, res: Ve
 
 async function logChallengeProgress(userId: string, challengeId: string, req: VercelRequest, res: VercelResponse) {
   try {
-    const { completed, value, date } = req.body;
+    const { completed, value, date, taskId } = req.body;
     const logDate = date || new Date().toISOString().split('T')[0];
 
     try {
-      // Log the progress (upsert)
-      await query(
-        `INSERT INTO challenge_logs (challenge_id, user_id, date, completed, value)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (challenge_id, user_id, date) 
-        DO UPDATE SET completed = $4, value = $5, logged_at = NOW()`,
-        [challengeId, userId, logDate, completed, value || 0]
-      );
+      if (taskId) {
+        // Log specific task progress
+        await query(
+          `INSERT INTO challenge_task_logs (task_id, user_id, value, log_date)
+           VALUES ($1, $2, $3, $4)`,
+          [taskId, userId, value || (completed ? 1 : 0), logDate]
+        );
+
+        // Check if all tasks for the challenge are completed today
+        const tasks = await query('SELECT * FROM challenge_tasks WHERE challenge_id = $1', [challengeId]);
+        
+        let allCompleted = true;
+        for (const task of tasks) {
+          const logs = await query(
+            `SELECT SUM(value) as total FROM challenge_task_logs 
+             WHERE task_id = $1 AND user_id = $2 AND log_date = $3`,
+            [task.id, userId, logDate]
+          );
+          
+          const current = parseInt(logs[0]?.total || '0');
+          const target = task.target_value || 1;
+          
+          if (current < target) {
+            allCompleted = false;
+            break;
+          }
+        }
+        
+        // If all tasks completed, mark the day as completed in challenge_logs
+        if (allCompleted) {
+           await query(
+            `INSERT INTO challenge_logs (challenge_id, user_id, date, completed, value)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (challenge_id, user_id, date) 
+            DO UPDATE SET completed = $4, value = $5, logged_at = NOW()`,
+            [challengeId, userId, logDate, true, 100]
+          );
+        }
+      } else {
+        // Log the progress (upsert) - Legacy/Single task
+        await query(
+          `INSERT INTO challenge_logs (challenge_id, user_id, date, completed, value)
+          VALUES ($1, $2, $3, $4, $5)
+          ON CONFLICT (challenge_id, user_id, date) 
+          DO UPDATE SET completed = $4, value = $5, logged_at = NOW()`,
+          [challengeId, userId, logDate, completed, value || 0]
+        );
+      }
 
       // Count completed days and calculate progress
       const stats = await query(
