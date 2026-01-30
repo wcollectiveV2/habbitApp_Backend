@@ -354,13 +354,23 @@ async function getChallenge(userId: string, challengeId: string, res: VercelResp
       );
 
       const participants = await query(
-        `SELECT cp.*, u.name as user_name, u.avatar_url as user_avatar, u.total_points as user_points
+        `SELECT cp.*, 
+          CASE 
+            WHEN u.privacy_challenge_leaderboard = 'anonymous' AND u.id != $2 THEN 'Anonymous User'
+            ELSE u.name 
+          END as user_name,
+          CASE 
+            WHEN u.privacy_challenge_leaderboard = 'anonymous' AND u.id != $2 THEN NULL 
+            ELSE u.avatar_url 
+          END as user_avatar, 
+          u.total_points as user_points
         FROM challenge_participants cp
         JOIN users u ON cp.user_id = u.id
         WHERE cp.challenge_id = $1
+          AND (u.privacy_challenge_leaderboard IS DISTINCT FROM 'hidden' OR u.id = $2)
         ORDER BY cp.progress DESC
         LIMIT 10`,
-        [challengeId]
+        [challengeId, userId]
       );
 
       const userParticipant = await query(
