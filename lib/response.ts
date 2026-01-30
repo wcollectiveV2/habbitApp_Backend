@@ -7,6 +7,7 @@ const ALLOWED_ORIGINS = [
   'https://habbit-app.vercel.app',
   // Admin Dashboard
   'https://front-back-office-eight.vercel.app',
+  /https:\/\/front-back-office[\w-]*\.vercel\.app$/,
   // Vercel preview deployments
   /https:\/\/habbit-app[\w-]*\.vercel\.app$/,
   // Local development
@@ -37,20 +38,23 @@ function isAllowedOrigin(origin: string | undefined): boolean {
 }
 
 export function cors(res: VercelResponse, req?: VercelRequest) {
-  const origin = req?.headers?.origin as string | undefined;
+  const rawOrigin = req?.headers?.origin as string | undefined;
+  const origin = rawOrigin?.replace(/\/$/, ''); // Normalize origin by removing trailing slash
   
   // Set the origin dynamically if it's allowed, otherwise use the first allowed origin
   if (isAllowedOrigin(origin) && origin) {
     res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
   } else if (!origin) {
-    // For requests without origin (mobile apps), allow all
+    // For requests without origin (mobile apps, tools), allow all but don't promise credentials
     res.setHeader('Access-Control-Allow-Origin', '*');
+    // Note: Access-Control-Allow-Credentials cannot be 'true' when origin is '*'
   } else {
-    // Default to production frontend
+    // Default to production frontend for disallowed origins (fail safe)
     res.setHeader('Access-Control-Allow-Origin', 'https://habbit-app-smoky.vercel.app');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
   }
   
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
   res.setHeader(
     'Access-Control-Allow-Headers',
