@@ -90,7 +90,7 @@ async function getDailyTip(userId: string, res: VercelResponse, req: VercelReque
 
     return json(res, {
       id: tip.id,
-      userId: parseInt(userId) || 0,
+      userId: userId,
       content: tip.content,
       category: tip.category,
       date: new Date().toISOString().split('T')[0],
