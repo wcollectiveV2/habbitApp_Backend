@@ -74,7 +74,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         let protocolCount = { count: 0 };
         try {
             const [pCount] = await sql`SELECT COUNT(*)::int as count FROM protocols`;
-            protocolCount = pCount;
+            protocolCount = { count: Number(pCount?.count ?? 0) };
         } catch (e) { console.log('Protocols table check failed', e); }
 
         const [challengeCount] = await sql`SELECT COUNT(*)::int as count FROM challenges`;

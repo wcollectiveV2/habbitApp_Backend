@@ -1,8 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { json, error, cors } from '../../lib/response';
-import { getAuthFromRequest, getUserId } from '../../lib/auth';
-import { query } from '../../lib/db';
-import bcrypt from 'bcryptjs';
+import { json, error, cors } from '../lib/response';
+import { getAuthFromRequest, getUserId } from '../lib/auth';
+import { query } from '../lib/db';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Handle CORS preflight
@@ -19,43 +18,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const userId = auth.sub;
   const path = req.url?.split('?')[0] || '';
-  
-  // Extract Target User ID from path if present (simple regex for UUID)
-  // Matches /api/users/UUID/...
-  const targetIdMatch = path.match(/\/users\/([0-9a-fA-F-]{36})/);
-  const targetUserId = targetIdMatch ? targetIdMatch[1] : null;
 
-  // GET /api/users/profile
-  if (req.method === 'GET' && path.includes('/profile') && !targetUserId) {
-    return getProfile(userId, res, req);
-  }
-  
-  // GET /api/users (List all)
-  if (req.method === 'GET' && (path.endsWith('/users') || path.endsWith('/users/'))) {
-    return listUsers(req, res);
-  }
-
-  // POST /api/users (Create/Invite)
-  if (req.method === 'POST' && (path.endsWith('/users') || path.endsWith('/users/'))) {
-    return createUser(req, res);
-  }
-  
-  // PUT /api/users/:id/roles
-  if (req.method === 'PUT' && targetUserId && path.includes('/roles')) {
-      return updateUserRoles(targetUserId, req, res);
-  }
-  
-  // GET /api/users/:id/groups
-  if (req.method === 'GET' && targetUserId && path.includes('/groups')) {
-      return getUserGroups(targetUserId, req, res);
-  }
-
-  // PUT /api/users/:id/groups
-  if (req.method === 'PUT' && targetUserId && path.includes('/groups')) {
-      return updateUserGroups(targetUserId, req, res);
-  }
-
-  // PATCH /api/user/profile
+  // GET /api/user/profile
   if (req.method === 'GET' && path.includes('/profile')) {
     return getProfile(userId, res, req);
   }
@@ -81,119 +45,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   return error(res, 'Not found', 404, req);
-}
-
-async function listUsers(req: VercelRequest, res: VercelResponse) {
-    try {
-        const auth = getAuthFromRequest(req);
-        if (!auth) return error(res, 'Unauthorized', 401, req);
-
-        const userId = auth.sub;
-        const isAdmin = (auth.permissions || []).includes('admin');
-        
-        let users;
-        
-        if (isAdmin) {
-            users = await query('SELECT id, email, name, roles, created_at FROM users ORDER BY created_at DESC');
-        } else {
-            // Find organizations where this user is an admin/manager (role='admin' in organization_members)
-            // Then find all users in those organizations
-            users = await query(
-                `SELECT DISTINCT u.id, u.email, u.name, u.roles, u.created_at 
-                 FROM users u
-                 JOIN organization_members om_target ON u.id = om_target.user_id
-                 WHERE om_target.organization_id IN (
-                    SELECT organization_id FROM organization_members 
-                    WHERE user_id = $1 AND role IN ('admin', 'coach', 'manager')
-                 )
-                 ORDER BY u.created_at DESC`,
-                [userId]
-            );
-        }
-        
-        // Fetch groups for these users
-        const usersWithGroups = await Promise.all(users.map(async (u: any) => {
-            const groups = await query(
-                `SELECT o.id, o.name, 'organization' as type 
-                 FROM organizations o 
-                 JOIN organization_members om ON o.id = om.organization_id 
-                 WHERE om.user_id = $1`,
-                [u.id]
-            );
-            return { ...u, groups };
-        }));
-
-        return json(res, usersWithGroups, 200, req);
-    } catch (err: any) {
-        console.error('List users error:', err);
-        return error(res, 'Failed to list users', 500, req);
-    }
-}
-
-async function updateUserRoles(targetUserId: string, req: VercelRequest, res: VercelResponse) {
-    try {
-        const { roles } = req.body; // Expect array of strings
-        if (!Array.isArray(roles)) return error(res, 'Roles must be an array', 400, req);
-        
-        const result = await query(
-            `UPDATE users SET roles = $1 WHERE id = $2 RETURNING id, email, roles`,
-            [roles, targetUserId]
-        );
-        
-        return json(res, result[0], 200, req);
-    } catch (err: any) {
-        return error(res, err.message, 500, req);
-    }
-}
-
-async function getUserGroups(targetUserId: string, req: VercelRequest, res: VercelResponse) {
-     try {
-            const groups = await query(
-                `SELECT o.id, o.name, 'organization' as type 
-                 FROM organizations o 
-                 JOIN organization_members om ON o.id = om.organization_id 
-                 WHERE om.user_id = $1`,
-                [targetUserId]
-            );
-            return json(res, groups, 200, req);
-    } catch (err: any) {
-        return error(res, err.message, 500, req);
-    }
-}
-
-async function updateUserGroups(targetUserId: string, req: VercelRequest, res: VercelResponse) {
-    try {
-        const { groupIds } = req.body; // Expect array of Organization IDs (UUIDs)
-        if (!Array.isArray(groupIds)) return error(res, 'Group IDs must be an array', 400, req);
-        
-        // Transaction-like approach: remove all, then add specific
-        // Note: this is destructive to "roles" in orgs, resets to member.
-        // A better approach would be diffing, but for simple admin "set groups" this works.
-        
-        await query(`DELETE FROM organization_members WHERE user_id = $1`, [targetUserId]);
-        
-        for (const orgId of groupIds) {
-             await query(
-                `INSERT INTO organization_members (organization_id, user_id, role, status)
-                 VALUES ($1, $2, 'member', 'active')
-                 ON CONFLICT DO NOTHING`,
-                [orgId, targetUserId]
-             );
-        }
-        
-        // Return updated user with groups (mock)
-         const groups = await query(
-                `SELECT o.id, o.name, 'organization' as type 
-                 FROM organizations o 
-                 JOIN organization_members om ON o.id = om.organization_id 
-                 WHERE om.user_id = $1`,
-                [targetUserId]
-            );
-        return json(res, { id: targetUserId, groups }, 200, req);
-
-    } catch (err: any) {
-        return error(res, err.message, 500, req);
-    }
 }
 
 async function getProfile(userId: string, res: VercelResponse, req: VercelRequest) {
@@ -412,61 +263,4 @@ async function syncUser(userId: string, req: VercelRequest, res: VercelResponse)
   } catch (err: any) {
     return error(res, err.message || 'Failed to sync user', 500, req);
   }
-}
-
-async function createUser(req: VercelRequest, res: VercelResponse) {
-    try {
-        const auth = getAuthFromRequest(req);
-        if (!auth) return error(res, 'Unauthorized', 401, req);
-        
-        const { email, name, roles, groupIds } = req.body;
-        
-        if (!email || !name) {
-            return error(res, 'Email and name required', 400, req);
-        }
-
-        // Check if user exists
-        const existing = await query('SELECT id FROM users WHERE email = $1', [email]);
-        
-        let userId;
-        
-        if (existing.length > 0) {
-            userId = existing[0].id;
-            // Update roles if provided
-            if (roles && roles.length > 0) {
-                 await query('UPDATE users SET roles = (select array_agg(distinct e) from unnest(roles || $1) e) WHERE id = $2', [roles, userId]);
-            }
-        } else {
-            // Create user
-            const tempPassword = Math.random().toString(36).slice(-8); 
-            const hash = await bcrypt.hash(tempPassword, 10);
-            
-            // Should ensure roles is array
-            const newRoles = roles && Array.isArray(roles) ? roles : ['user'];
-
-            const newUser = await query(
-                'INSERT INTO users (email, name, password_hash, roles) VALUES ($1, $2, $3, $4) RETURNING id',
-                [email, name, hash, newRoles]
-            );
-            userId = newUser[0].id;
-        }
-        
-        // Add to groups
-        if (groupIds && Array.isArray(groupIds) && groupIds.length > 0) {
-             for (const groupId of groupIds) {
-                 await query(
-                     `INSERT INTO organization_members (organization_id, user_id, role) 
-                      VALUES ($1, $2, 'member') 
-                      ON CONFLICT (organization_id, user_id) DO NOTHING`,
-                     [groupId, userId]
-                 );
-             }
-        }
-        
-        return json(res, { id: userId, message: 'User processed' }, 201, req);
-        
-    } catch (err: any) {
-         console.error('Create user error:', err);
-        return error(res, 'Failed to create user', 500, req);
-    }
 }

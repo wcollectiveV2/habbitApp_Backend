@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { json, error, cors } from '../../lib/response';
-import { getAuthFromRequest } from '../../lib/auth';
-import { query } from '../../lib/db';
+import { json, error, cors } from '../lib/response';
+import { getAuthFromRequest } from '../lib/auth';
+import { query } from '../lib/db';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   cors(res, req);
