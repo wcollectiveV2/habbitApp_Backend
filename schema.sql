@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
   current_streak INT DEFAULT 0,
   privacy_public_leaderboard VARCHAR(50) DEFAULT 'visible',
   privacy_challenge_leaderboard VARCHAR(50) DEFAULT 'visible',
+  roles TEXT[] DEFAULT ARRAY['user'],
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );

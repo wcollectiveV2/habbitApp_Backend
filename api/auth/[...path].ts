@@ -46,8 +46,8 @@ async function handleLogin(req: VercelRequest, res: VercelResponse) {
     }
 
     // Query user from database
-    const users = await query<{ id: string; email: string; password_hash: string; name: string }>(
-      'SELECT id, email, password_hash, name FROM users WHERE email = $1',
+    const users = await query<{ id: string; email: string; password_hash: string; name: string; roles: string[] }>(
+      'SELECT id, email, password_hash, name, roles FROM users WHERE email = $1',
       [email]
     );
 
@@ -65,13 +65,13 @@ async function handleLogin(req: VercelRequest, res: VercelResponse) {
     const accessToken = generateToken({
       sub: user.id,
       email: user.email,
-      permissions: ['habit:read', 'habit:write'],
+      permissions: user.roles || [],
     });
 
     const refreshToken = generateToken({
       sub: user.id,
       email: user.email,
-      permissions: ['habit:read', 'habit:write'],
+      permissions: user.roles || [],
     });
 
     return json(res, {
@@ -81,6 +81,7 @@ async function handleLogin(req: VercelRequest, res: VercelResponse) {
         id: user.id,
         email: user.email,
         name: user.name,
+        roles: user.roles || [],
       },
     }, 200, req);
   } catch (err: any) {

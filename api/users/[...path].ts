@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { json, error, cors } from '../../lib/response';
 import { getAuthFromRequest, getUserId } from '../../lib/auth';
 import { query } from '../../lib/db';
+import bcrypt from 'bcryptjs';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Handle CORS preflight
@@ -32,6 +33,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // GET /api/users (List all)
   if (req.method === 'GET' && (path.endsWith('/users') || path.endsWith('/users/'))) {
     return listUsers(req, res);
+  }
+
+  // POST /api/users (Create/Invite)
+  if (req.method === 'POST' && (path.endsWith('/users') || path.endsWith('/users/'))) {
+    return createUser(req, res);
   }
   
   // PUT /api/users/:id/roles
@@ -79,15 +85,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
 async function listUsers(req: VercelRequest, res: VercelResponse) {
     try {
-        const users = await query('SELECT id, email, name, roles, created_at FROM users ORDER BY created_at DESC');
-        // also fetch groups for each user? expensive. 
-        // Admin dashboard expects 'groups' property array
+        const auth = getAuthFromRequest(req);
+        if (!auth) return error(res, 'Unauthorized', 401, req);
+
+        const userId = auth.sub;
+        const isAdmin = (auth.permissions || []).includes('admin');
         
-        // optimize: single query with join
-        // But for now, mock groups or fetch simple
-        // Let's defer groups fetch to "get user details" if possible, but list expects it?
-        // UserManagementView: "groups" key in User interface.
+        let users;
         
+        if (isAdmin) {
+            users = await query('SELECT id, email, name, roles, created_at FROM users ORDER BY created_at DESC');
+        } else {
+            // Find organizations where this user is an admin/manager (role='admin' in organization_members)
+            // Then find all users in those organizations
+            users = await query(
+                `SELECT DISTINCT u.id, u.email, u.name, u.roles, u.created_at 
+                 FROM users u
+                 JOIN organization_members om_target ON u.id = om_target.user_id
+                 WHERE om_target.organization_id IN (
+                    SELECT organization_id FROM organization_members 
+                    WHERE user_id = $1 AND role IN ('admin', 'coach', 'manager')
+                 )
+                 ORDER BY u.created_at DESC`,
+                [userId]
+            );
+        }
+        
+        // Fetch groups for these users
         const usersWithGroups = await Promise.all(users.map(async (u: any) => {
             const groups = await query(
                 `SELECT o.id, o.name, 'organization' as type 
@@ -101,7 +125,8 @@ async function listUsers(req: VercelRequest, res: VercelResponse) {
 
         return json(res, usersWithGroups, 200, req);
     } catch (err: any) {
-        return error(res, err.message, 500, req);
+        console.error('List users error:', err);
+        return error(res, 'Failed to list users', 500, req);
     }
 }
 
@@ -387,4 +412,61 @@ async function syncUser(userId: string, req: VercelRequest, res: VercelResponse)
   } catch (err: any) {
     return error(res, err.message || 'Failed to sync user', 500, req);
   }
+}
+
+async function createUser(req: VercelRequest, res: VercelResponse) {
+    try {
+        const auth = getAuthFromRequest(req);
+        if (!auth) return error(res, 'Unauthorized', 401, req);
+        
+        const { email, name, roles, groupIds } = req.body;
+        
+        if (!email || !name) {
+            return error(res, 'Email and name required', 400, req);
+        }
+
+        // Check if user exists
+        const existing = await query('SELECT id FROM users WHERE email = $1', [email]);
+        
+        let userId;
+        
+        if (existing.length > 0) {
+            userId = existing[0].id;
+            // Update roles if provided
+            if (roles && roles.length > 0) {
+                 await query('UPDATE users SET roles = (select array_agg(distinct e) from unnest(roles || $1) e) WHERE id = $2', [roles, userId]);
+            }
+        } else {
+            // Create user
+            const tempPassword = Math.random().toString(36).slice(-8); 
+            const hash = await bcrypt.hash(tempPassword, 10);
+            
+            // Should ensure roles is array
+            const newRoles = roles && Array.isArray(roles) ? roles : ['user'];
+
+            const newUser = await query(
+                'INSERT INTO users (email, name, password_hash, roles) VALUES ($1, $2, $3, $4) RETURNING id',
+                [email, name, hash, newRoles]
+            );
+            userId = newUser[0].id;
+        }
+        
+        // Add to groups
+        if (groupIds && Array.isArray(groupIds) && groupIds.length > 0) {
+             for (const groupId of groupIds) {
+                 await query(
+                     `INSERT INTO organization_members (organization_id, user_id, role) 
+                      VALUES ($1, $2, 'member') 
+                      ON CONFLICT (organization_id, user_id) DO NOTHING`,
+                     [groupId, userId]
+                 );
+             }
+        }
+        
+        return json(res, { id: userId, message: 'User processed' }, 201, req);
+        
+    } catch (err: any) {
+         console.error('Create user error:', err);
+        return error(res, 'Failed to create user', 500, req);
+    }
 }
