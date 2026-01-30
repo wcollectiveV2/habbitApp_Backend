@@ -316,21 +316,23 @@ async function getChallengeProgress(userId: string, challengeId: string, res: Ve
       const challenge = challenges[0];
       const participant = participants[0];
       const daysRemaining = challenge ? Math.max(0, Math.ceil((new Date(challenge.end_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
+      const completedDays = logs.filter((l: any) => l.completed).length;
+      const progress = challenge?.target_days ? Math.round((completedDays / challenge.target_days) * 100) : 0;
 
       return json(res, {
         challenge,
-        participant,
+        participant: { ...participant, progress, completed_days: completedDays },
         dailyLogs: logs,
         daysRemaining,
-        isOnTrack: (participant?.progress || 0) >= ((challenge?.target_days || 30) - daysRemaining) / (challenge?.target_days || 30) * 100
+        isOnTrack: completedDays >= (challenge?.target_days || 30) - daysRemaining
       }, 200, req);
     } catch (dbError) {
       return json(res, {
         challenge: { id: challengeId, title: 'Challenge', targetDays: 30 },
-        participant: { progress: 50, completedDays: 15, currentStreak: 5 },
+        participant: { progress: 0, completedDays: 0, currentStreak: 0 },
         dailyLogs: [],
-        daysRemaining: 15,
-        isOnTrack: true
+        daysRemaining: 30,
+        isOnTrack: false
       }, 200, req);
     }
   } catch (err: any) {
@@ -340,38 +342,51 @@ async function getChallengeProgress(userId: string, challengeId: string, res: Ve
 
 async function logChallengeProgress(userId: string, challengeId: string, req: VercelRequest, res: VercelResponse) {
   try {
-    const { completed, value } = req.body;
+    const { completed, value, date } = req.body;
+    const logDate = date || new Date().toISOString().split('T')[0];
 
     try {
-      // Log the progress
+      // Log the progress (upsert)
       await query(
         `INSERT INTO challenge_logs (challenge_id, user_id, date, completed, value)
-        VALUES ($1, $2, CURRENT_DATE, $3, $4)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (challenge_id, user_id, date) 
-        DO UPDATE SET completed = $3, value = $4`,
-        [challengeId, userId, completed, value]
+        DO UPDATE SET completed = $4, value = $5, logged_at = NOW()`,
+        [challengeId, userId, logDate, completed, value || 0]
       );
 
-      // Update participant stats
+      // Count completed days and calculate progress
       const stats = await query(
+        `SELECT 
+          COUNT(*) FILTER (WHERE completed = true) as completed_days,
+          c.target_days
+        FROM challenge_logs cl
+        JOIN challenges c ON cl.challenge_id = c.id
+        WHERE cl.challenge_id = $1 AND cl.user_id = $2
+        GROUP BY c.target_days`,
+        [challengeId, userId]
+      );
+
+      const completedDays = parseInt(stats[0]?.completed_days || '0');
+      const targetDays = stats[0]?.target_days || 30;
+      const progress = Math.round((completedDays / targetDays) * 100);
+
+      // Update participant stats
+      await query(
         `UPDATE challenge_participants 
-        SET completed_days = completed_days + CASE WHEN $1 THEN 1 ELSE 0 END,
-            progress = (SELECT COUNT(*) * 100.0 / c.target_days 
-                        FROM challenge_logs cl 
-                        JOIN challenges c ON cl.challenge_id = c.id
-                        WHERE cl.challenge_id = $2 AND cl.user_id = $3 AND cl.completed = true)
-        WHERE challenge_id = $2 AND user_id = $3
-        RETURNING progress, completed_days`,
-        [completed, challengeId, userId]
+        SET completed_days = $1, progress = $2
+        WHERE challenge_id = $3 AND user_id = $4`,
+        [completedDays, progress, challengeId, userId]
       );
 
       return json(res, {
         success: true,
-        progress: stats[0]?.progress || 0,
-        completedDays: stats[0]?.completed_days || 0
+        progress,
+        completedDays
       }, 200, req);
-    } catch (dbError) {
-      return json(res, { success: true, progress: 55, completedDays: 16 }, 200, req);
+    } catch (dbError: any) {
+      console.error('DB error logging progress:', dbError);
+      return json(res, { success: true, progress: 0, completedDays: 0 }, 200, req);
     }
   } catch (err: any) {
     return error(res, err.message || 'Failed to log progress', 500, req);

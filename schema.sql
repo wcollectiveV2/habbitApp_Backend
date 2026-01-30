@@ -104,13 +104,17 @@ CREATE TABLE IF NOT EXISTS challenge_participants (
   UNIQUE(challenge_id, user_id)
 );
 
--- Challenge logs table
+-- Challenge logs table (daily check-ins)
 CREATE TABLE IF NOT EXISTS challenge_logs (
   id SERIAL PRIMARY KEY,
   challenge_id INT NOT NULL REFERENCES challenges(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  date DATE NOT NULL DEFAULT CURRENT_DATE,
+  completed BOOLEAN DEFAULT false,
+  value INT DEFAULT 0,
+  notes TEXT,
   logged_at TIMESTAMP DEFAULT NOW(),
-  notes TEXT
+  UNIQUE(challenge_id, user_id, date)
 );
 
 -- User follows table (friendships/following system)
