@@ -72,6 +72,79 @@ CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(due_date);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 
 -- ============================================================================
+-- Challenges & Social Features
+-- ============================================================================
+
+-- Challenges table
+CREATE TABLE IF NOT EXISTS challenges (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  type VARCHAR(50) DEFAULT 'individual',
+  status VARCHAR(50) DEFAULT 'upcoming',
+  icon VARCHAR(100) DEFAULT 'flag',
+  is_public BOOLEAN DEFAULT true,
+  start_date TIMESTAMP DEFAULT NOW(),
+  end_date TIMESTAMP NOT NULL,
+  target_days INT DEFAULT 21,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Challenge participants table
+CREATE TABLE IF NOT EXISTS challenge_participants (
+  id SERIAL PRIMARY KEY,
+  challenge_id INT NOT NULL REFERENCES challenges(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  progress INT DEFAULT 0,
+  completed_days INT DEFAULT 0,
+  current_streak INT DEFAULT 0,
+  joined_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(challenge_id, user_id)
+);
+
+-- Challenge logs table
+CREATE TABLE IF NOT EXISTS challenge_logs (
+  id SERIAL PRIMARY KEY,
+  challenge_id INT NOT NULL REFERENCES challenges(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  logged_at TIMESTAMP DEFAULT NOW(),
+  notes TEXT
+);
+
+-- User follows table (friendships/following system)
+CREATE TABLE IF NOT EXISTS user_follows (
+  id SERIAL PRIMARY KEY,
+  follower_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  following_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(follower_id, following_id)
+);
+
+-- Activity feed table
+CREATE TABLE IF NOT EXISTS activity_feed (
+  id SERIAL PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  activity_type VARCHAR(100) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Add total_points to users if not exists
+ALTER TABLE users ADD COLUMN IF NOT EXISTS total_points INT DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_challenges_status ON challenges(status);
+CREATE INDEX IF NOT EXISTS idx_challenges_is_public ON challenges(is_public);
+CREATE INDEX IF NOT EXISTS idx_challenge_participants_challenge ON challenge_participants(challenge_id);
+CREATE INDEX IF NOT EXISTS idx_challenge_participants_user ON challenge_participants(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_follows_follower ON user_follows(follower_id);
+CREATE INDEX IF NOT EXISTS idx_user_follows_following ON user_follows(following_id);
+CREATE INDEX IF NOT EXISTS idx_activity_feed_user ON activity_feed(user_id);
+
+-- ============================================================================
 -- Optional: Insert sample data for testing
 -- ============================================================================
 
