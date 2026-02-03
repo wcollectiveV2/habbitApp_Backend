@@ -1,8 +1,15 @@
 const bcrypt = require('bcryptjs');
 
-const hash = '$2b$10$rQZ8kHxVJgQjH1M7TJqV5uF8h8nqWQ9BqVN8s3mM5A0uP6YzQJ6Gy';
-const candidate = 'admin';
+const hash = '$2a$10$4.KfjCxtAo0r6DC3724VbOnHJ4xqpFosqhAhGjwcJiULuo3R/0YG.';
+const pass = 'Test123!';
+const passAdmin = 'admin';
 
-bcrypt.compare(candidate, hash).then(res => {
-    console.log(`Password '${candidate}' matches: ${res}`);
-});
+async function check() {
+  const match = await bcrypt.compare(pass, hash);
+  console.log(`Password '${pass}' matches: ${match}`);
+  
+  const matchAdmin = await bcrypt.compare(passAdmin, hash);
+  console.log(`Password '${passAdmin}' matches: ${matchAdmin}`);
+}
+
+check();

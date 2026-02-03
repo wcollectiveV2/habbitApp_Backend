@@ -16,6 +16,8 @@ import socialHandler from '../handlers/social';
 import tasksHandler from '../handlers/tasks';
 import userHandler from '../handlers/user';
 import usersHandler from '../handlers/users';
+import invitationsHandler from '../handlers/invitations';
+import adminHandler from '../handlers/admin';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS first
@@ -51,6 +53,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (matchApi('protocols')) return await protocolsHandler(req, res);
     if (matchApi('social')) return await socialHandler(req, res);
     if (matchApi('tasks')) return await tasksHandler(req, res);
+    
+    // Invitation system (public endpoint for accepting invitations)
+    if (matchApi('invitations')) return await invitationsHandler(req, res);
+    
+    // Admin management endpoints
+    if (matchApi('admin')) return await adminHandler(req, res);
     
     if (matchApi('users')) return await usersHandler(req, res);
     if (matchApi('user')) return await userHandler(req, res);
@@ -129,12 +137,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({
       status: 'ok',
       service: 'HabitPulse API',
-      version: '1.0.0',
+      version: '1.1.0',
       endpoints: {
         health: '/api/health',
-        stats: '/api/admin/stats',
         auth: '/api/auth',
-        habits: '/api/habits'
+        habits: '/api/habits',
+        tasks: '/api/tasks',
+        challenges: '/api/challenges',
+        social: '/api/social',
+        notifications: '/api/notifications',
+        organizations: '/api/organizations',
+        invitations: '/api/invitations',
+        admin: '/api/admin',
+        protocols: '/api/protocols',
+        users: '/api/users',
+        user: '/api/user',
+        ai: '/api/ai'
       }
     });
   } catch (error: any) {

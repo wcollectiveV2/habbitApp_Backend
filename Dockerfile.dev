@@ -1,0 +1,15 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install dependencies
+COPY package*.json ./
+RUN npm install
+
+# Copy source
+COPY . .
+
+EXPOSE 3001
+
+# Run the server with tsx for TypeScript support
+CMD ["npx", "tsx", "watch", "server.ts"]

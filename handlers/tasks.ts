@@ -35,6 +35,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return updateTask(userId, taskId as string, req, res);
   }
 
+  // DELETE /api/tasks/:id
+  if (req.method === 'DELETE' && taskId) {
+    return deleteTask(userId, taskId as string, res, req);
+  }
+
   // GET /api/tasks/history
   if (req.method === 'GET' && path.includes('/history')) {
     return getTaskHistory(userId, req, res);
@@ -163,5 +168,22 @@ async function getTaskHistory(userId: string, req: VercelRequest, res: VercelRes
     return json(res, { tasks }, 200, req);
   } catch (err: any) {
     return error(res, err.message || 'Failed to get task history', 500, req);
+  }
+}
+
+async function deleteTask(userId: string, taskId: string, res: VercelResponse, req: VercelRequest) {
+  try {
+    const result = await query(
+      'DELETE FROM tasks WHERE id = $1 AND user_id = $2 RETURNING id',
+      [taskId, userId]
+    );
+
+    if (result.length === 0) {
+      return error(res, 'Task not found', 404, req);
+    }
+
+    return json(res, { success: true }, 200, req);
+  } catch (err: any) {
+    return error(res, err.message || 'Failed to delete task', 500, req);
   }
 }

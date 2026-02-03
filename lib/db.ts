@@ -1,4 +1,8 @@
 import { neon } from '@neondatabase/serverless';
+import { Pool } from 'pg';
+
+// Determine if we're in local Docker environment
+const isLocalDocker = process.env.NODE_ENV === 'development' && process.env.DATABASE_URL?.includes('postgres:5432');
 
 // Build DATABASE_URL from various possible env var formats
 function getDatabaseUrl(): string {
@@ -25,8 +29,18 @@ function getDatabaseUrl(): string {
   throw new Error('No database URL found. Set DATABASE_URL, WCLTV_POSTGRES_URL, or WCLTV_PG* variables.');
 }
 
-// Serverless-compatible database connection
-// Lazy load to prevent top-level await/init crashes
+// Local PostgreSQL pool for Docker environment
+let _pool: Pool | null = null;
+function getPool(): Pool {
+  if (!_pool) {
+    _pool = new Pool({
+      connectionString: getDatabaseUrl(),
+    });
+  }
+  return _pool;
+}
+
+// Neon serverless connection for production
 let _sql: any;
 function getSql() {
   if (!_sql) _sql = neon(getDatabaseUrl());
@@ -37,12 +51,20 @@ export const sql = (stringsOrQuery: any, ...values: any[]) => {
   return getSql()(stringsOrQuery, ...values);
 };
 
-// Helper to run queries
+// Helper to run queries - supports both local PostgreSQL and Neon serverless
 export async function query<T = any>(queryText: string, params: any[] = []): Promise<T[]> {
   try {
-    // @ts-ignore - Neon driver signature handling
-    const result = await getSql()(queryText, params);
-    return result as T[];
+    if (isLocalDocker) {
+      // Use standard pg pool for local Docker PostgreSQL
+      const pool = getPool();
+      const result = await pool.query(queryText, params);
+      return result.rows as T[];
+    } else {
+      // Use Neon serverless for production
+      // @ts-ignore - Neon driver signature handling
+      const result = await getSql()(queryText, params);
+      return result as T[];
+    }
   } catch (error) {
     console.error('Database query error:', error);
     throw error;
