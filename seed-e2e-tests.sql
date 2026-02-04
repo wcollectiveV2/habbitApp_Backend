@@ -62,6 +62,7 @@ VALUES
     ('e2e00001-0000-0000-0000-000000000007', 'newuser@e2etest.com', '$2a$10$bbNxqIwv1Wc5.AL0xm4m7.C945lALJDd2Cj6NtHGLFK5O6ZKPD4Aa', 'New User', 'Fresh user for onboarding tests', 0, ARRAY['user'], NOW())
 ON CONFLICT (id) DO UPDATE SET 
     email = EXCLUDED.email,
+    password_hash = EXCLUDED.password_hash,
     name = EXCLUDED.name,
     bio = EXCLUDED.bio,
     current_streak = EXCLUDED.current_streak,
