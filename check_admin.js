@@ -16,7 +16,7 @@ const sql = neon(process.env.DATABASE_URL || process.env.WCLTV_POSTGRES_URL);
 
 async function checkUser() {
     try {
-        const result = await sql`SELECT email, roles FROM users WHERE email = 'admin@chrislo.com'`;
+        const result = await sql`SELECT email, roles FROM users WHERE email = 'admin@wcollective.com'`;
         console.log('User found:', JSON.stringify(result, null, 2));
     } catch (e) {
         console.error(e);

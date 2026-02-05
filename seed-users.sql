@@ -15,7 +15,7 @@ ON CONFLICT (email) DO UPDATE SET name = 'HabitPulse Team';
 INSERT INTO users (email, password_hash, name, bio, roles, created_at)
 VALUES 
     -- Global Admin (Has access to everything)
-    ('admin@chrislo.com', '$2a$10$4O7icw1c1WC2tvFgABkAueuLCDzITCQWNt8ijx/W80QECyOJQEq7S', 'Super Admin', 'Platform Administrator', ARRAY['admin'], NOW()),
+    ('admin@wcollective.com', '$2a$10$4O7icw1c1WC2tvFgABkAueuLCDzITCQWNt8ijx/W80QECyOJQEq7S', 'Super Admin', 'Platform Administrator', ARRAY['admin'], NOW()),
     
     -- Organization Manager (Manages specific org users)
     ('manager@wcollective.com', '$2a$10$4O7icw1c1WC2tvFgABkAueuLCDzITCQWNt8ijx/W80QECyOJQEq7S', 'Wcollective Manager', 'Managing Wcollective', ARRAY['manager'], NOW()),
@@ -24,10 +24,10 @@ VALUES
     ('coach@nest.com', '$2a$10$4O7icw1c1WC2tvFgABkAueuLCDzITCQWNt8ijx/W80QECyOJQEq7S', 'Nest Coach', 'Wellness Coach', ARRAY['coach'], NOW()),
     
     -- Protocol Manager (Can manage protocols)
-    ('protocol@chrislo.com', '$2a$10$4O7icw1c1WC2tvFgABkAueuLCDzITCQWNt8ijx/W80QECyOJQEq7S', 'Protocol Specialist', 'Managing Protocols', ARRAY['protocol_manager'], NOW()),
+    ('protocol@wcollective.com', '$2a$10$4O7icw1c1WC2tvFgABkAueuLCDzITCQWNt8ijx/W80QECyOJQEq7S', 'Protocol Specialist', 'Managing Protocols', ARRAY['protocol_manager'], NOW()),
     
     -- Retreat Manager (Can manage retreats)
-    ('retreat@chrislo.com', '$2a$10$4O7icw1c1WC2tvFgABkAueuLCDzITCQWNt8ijx/W80QECyOJQEq7S', 'Retreat Organizer', 'Managing Retreats', ARRAY['retreat_manager'], NOW()),
+    ('retreat@wcollective.com', '$2a$10$4O7icw1c1WC2tvFgABkAueuLCDzITCQWNt8ijx/W80QECyOJQEq7S', 'Retreat Organizer', 'Managing Retreats', ARRAY['retreat_manager'], NOW()),
     
     -- Shop Manager (Can manage shop)
     ('shop@chrislo.com', '$2a$10$4O7icw1c1WC2tvFgABkAueuLCDzITCQWNt8ijx/W80QECyOJQEq7S', 'Shop Keeper', 'Managing Shop', ARRAY['shop_manager'], NOW()),

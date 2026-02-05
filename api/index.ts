@@ -94,7 +94,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       return json(res, {
         status: isHealthy ? 'healthy' : 'degraded',
-        service: 'chrislo-vercel-backend',
+        service: 'wcollective-vercel-backend',
         timestamp: new Date().toISOString(),
         database: { status: dbStatus, error: dbError, tables: dbTables }
       }, isHealthy ? 200 : 503, req);

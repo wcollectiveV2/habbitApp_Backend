@@ -1,6 +1,6 @@
 # habbitApp_Backend
 
-Serverless backend API for the HabitPulse/ChrisLO platform, designed for Vercel deployment.
+Serverless backend API for the HabitPulse/wcollective platform, designed for Vercel deployment.
 
 **Repository**: https://github.com/wcollectiveV2/habbitApp_Backend
 
