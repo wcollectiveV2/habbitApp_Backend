@@ -815,8 +815,8 @@ async function getAdminNotifications(req: VercelRequest, res: VercelResponse, us
 
     // Get recent protocol updates
     const protocolUpdatesQuery = await query(`
-      SELECT id, title, status, updated_at
-      FROM challenges
+      SELECT id, name as title, updated_at
+      FROM protocols
       WHERE updated_at > NOW() - INTERVAL '7 days'
         AND updated_at != created_at
       ORDER BY updated_at DESC
@@ -873,11 +873,11 @@ async function getAdminNotifications(req: VercelRequest, res: VercelResponse, us
         id: `protocol-update-${notifId++}`,
         type: 'system',
         title: 'Protocol updated',
-        description: `"${protocol.title}" status changed to ${protocol.status}`,
+        description: `"${protocol.title}" has been updated`,
         time: timeStr,
         unread: hours < 6,
         created_at: protocol.updated_at,
-        data: { protocolId: protocol.id, title: protocol.title, status: protocol.status }
+        data: { protocolId: protocol.id, title: protocol.title }
       });
     }
 
