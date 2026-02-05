@@ -433,8 +433,75 @@ async function deleteProtocol(userId: string, id: string, req: VercelRequest, re
   }
 }
 
-async function getProtocol(id: string, res: VercelResponse, req: VercelRequest) {
+async function getProtocol(idOrString: string, res: VercelResponse, req: VercelRequest) {
   try {
+    const id = parseInt(idOrString, 10);
+
+    if (isNaN(id)) {
+      return error(res, 'Invalid ID', 400, req);
+    }
+
+    if (id < 0) {
+      // Handle Challenge as Protocol
+      const challengeId = Math.abs(id);
+      const challenges = await query(
+        `SELECT c.*, c.title as name, o.name as organization_name
+          FROM challenges c
+          LEFT JOIN organizations o ON c.organization_id = o.id
+          WHERE c.id = $1`,
+        [challengeId]
+      );
+      
+      if (challenges.length === 0) return error(res, 'Protocol (Challenge) not found', 404, req);
+      
+      const challenge = challenges[0];
+      
+      // Fetch Tasks (Challenge Elements)
+      const tasks = await query(
+        `SELECT * FROM challenge_tasks WHERE challenge_id = $1 ORDER BY id`,
+        [challengeId]
+      );
+      
+      // Map tasks to elements
+      const elements = tasks.map((t:any) => ({
+        id: t.id,
+        title: t.title,
+        description: t.description,
+        type: t.type === 'boolean' ? 'check' : (t.type === 'numeric' ? 'number' : t.type),
+        goal: t.target_value,
+        unit: t.unit,
+        frequency: 'daily',
+        min_value: null,
+        max_value: null,
+        points: 10,
+        displayOrder: t.id,
+        isRequired: true
+      }));
+
+      // Retrieve participants as assigned users
+      const participants = await query(
+        `SELECT u.id, u.name, u.email, cp.joined_at as assigned_at
+          FROM challenge_participants cp
+          JOIN users u ON cp.user_id = u.id
+          WHERE cp.challenge_id = $1`,
+        [challengeId]
+      );
+
+      return json(res, {
+        ...challenge,
+        id: id, // Keep negative ID
+        original_id: challengeId,
+        source_type: 'challenge',
+        creatorId: challenge.created_by,
+        organizationId: challenge.organization_id,
+        organizationName: challenge.organization_name,
+        createdAt: challenge.created_at,
+        assignedOrganizations: [],
+        assignedUsers: participants,
+        elements: elements
+      }, 200, req);
+    }
+
     const protocols = await query(
       `SELECT p.*, o.name as organization_name
        FROM protocols p
