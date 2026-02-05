@@ -55,6 +55,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return updateUserGroups(targetUserId, req, res);
   }
 
+  // DELETE /api/users/:id
+  if (req.method === 'DELETE' && targetUserId && !path.includes('/roles') && !path.includes('/groups')) {
+      return deleteUser(targetUserId, req, res);
+  }
+
   // PATCH /api/user/profile
   if (req.method === 'GET' && path.includes('/profile')) {
     return getProfile(userId, res, req);
@@ -468,5 +473,33 @@ async function createUser(req: VercelRequest, res: VercelResponse) {
     } catch (err: any) {
          console.error('Create user error:', err);
         return error(res, 'Failed to create user', 500, req);
+    }
+}
+
+async function deleteUser(targetUserId: string, req: VercelRequest, res: VercelResponse) {
+    try {
+        const auth = getAuthFromRequest(req);
+        if (!auth) return error(res, 'Unauthorized', 401, req);
+        
+        // Only global admins can delete users
+        const isGlobalAdmin = (auth.permissions || []).includes('admin') || (auth.permissions || []).includes('super_admin');
+        if (!isGlobalAdmin) {
+            return error(res, 'Forbidden. Only admins can delete users.', 403, req);
+        }
+
+        // Check if user exists
+        const user = await query('SELECT id FROM users WHERE id = $1', [targetUserId]);
+        if (user.length === 0) {
+            return error(res, 'User not found', 404, req);
+        }
+        
+        // Perform delete
+        // Note: Dependent records should have ON DELETE CASCADE or similar constraint
+        await query('DELETE FROM users WHERE id = $1', [targetUserId]);
+        
+        return json(res, { message: 'User deleted successfully' }, 200, req);
+    } catch (e: any) {
+        console.error('Delete user error:', e);
+        return error(res, 'Failed to delete user', 500, req);
     }
 }

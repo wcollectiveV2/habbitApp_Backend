@@ -4,10 +4,28 @@
 -- Run before tests: psql $DATABASE_URL -f seed-e2e-tests.sql
 -- ============================================================================
 
+-- Remove legacy unique constraint on habit_logs if it exists to allow multiple completions
+DROP INDEX IF EXISTS idx_habit_logs_unique_daily;
+
 -- Ensure protocols table schema matches codebase expectations
 ALTER TABLE protocols ADD COLUMN IF NOT EXISTS organization_id UUID REFERENCES organizations(id) ON DELETE SET NULL;
 ALTER TABLE protocols ADD COLUMN IF NOT EXISTS icon VARCHAR(50) DEFAULT 'checklist';
 ALTER TABLE protocols ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'draft';
+
+-- Ensure challenge_task_logs has unique constraint for task completion
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'challenge_task_logs_task_id_user_id_log_date_key'
+    ) THEN
+        ALTER TABLE challenge_task_logs 
+        ADD CONSTRAINT challenge_task_logs_task_id_user_id_log_date_key 
+        UNIQUE (task_id, user_id, log_date);
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+    NULL; -- Ignore if constraint already exists or table doesn't exist
+END $$;
 
 -- Fix sequences after manual ID insertions
 ALTER SEQUENCE protocols_id_seq RESTART WITH 10000;
@@ -106,9 +124,9 @@ ON CONFLICT (id) DO UPDATE SET
 INSERT INTO tasks (id, user_id, habit_id, title, description, status, type, goal, current_value, unit, icon, priority, due_date, created_at)
 VALUES
     -- Pending tasks
-    ('e2e00004-0000-0000-0000-000000000001', 'e2e00001-0000-0000-0000-000000000001', 'e2e00003-0000-0000-0000-000000000001', 'Drink Water', 'Drink 8 glasses of water today', 'pending', 'counter', 8, 3, 'glasses', 'local_drink', 'high', CURRENT_DATE + INTERVAL '1 day', NOW()),
-    ('e2e00004-0000-0000-0000-000000000002', 'e2e00001-0000-0000-0000-000000000001', 'e2e00003-0000-0000-0000-000000000002', 'Morning Run', 'Complete your morning 5km run', 'pending', 'check', 1, 0, 'run', 'directions_run', 'high', CURRENT_DATE + INTERVAL '1 day', NOW()),
-    ('e2e00004-0000-0000-0000-000000000003', 'e2e00001-0000-0000-0000-000000000001', 'e2e00003-0000-0000-0000-000000000003', 'Read Book', 'Read for 30 minutes', 'pending', 'counter', 30, 15, 'minutes', 'menu_book', 'medium', CURRENT_DATE + INTERVAL '1 day', NOW()),
+    ('e2e00004-0000-0000-0000-000000000001', 'e2e00001-0000-0000-0000-000000000001', 'e2e00003-0000-0000-0000-000000000001', 'Drink Water', 'Drink 8 glasses of water today', 'pending', 'counter', 8, 3, 'glasses', 'local_drink', 'high', CURRENT_DATE, NOW()),
+    ('e2e00004-0000-0000-0000-000000000002', 'e2e00001-0000-0000-0000-000000000002', 'e2e00003-0000-0000-0000-000000000002', 'Morning Run', 'Complete your morning 5km run', 'pending', 'check', 1, 0, 'run', 'directions_run', 'high', CURRENT_DATE, NOW()),
+    ('e2e00004-0000-0000-0000-000000000003', 'e2e00001-0000-0000-0000-000000000001', 'e2e00003-0000-0000-0000-000000000003', 'Read Book', 'Read for 30 minutes', 'pending', 'counter', 30, 15, 'minutes', 'menu_book', 'medium', CURRENT_DATE, NOW()),
     
     -- Completed task
     ('e2e00004-0000-0000-0000-000000000004', 'e2e00001-0000-0000-0000-000000000001', 'e2e00003-0000-0000-0000-000000000004', 'Meditation', 'Complete your 10 minute meditation', 'completed', 'check', 1, 1, 'session', 'self_improvement', 'medium', CURRENT_DATE, NOW() - INTERVAL '2 hours'),

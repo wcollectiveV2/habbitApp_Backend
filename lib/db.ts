@@ -54,17 +54,24 @@ export const sql = (stringsOrQuery: any, ...values: any[]) => {
 // Helper to run queries - supports both local PostgreSQL and Neon serverless
 export async function query<T = any>(queryText: string, params: any[] = []): Promise<T[]> {
   try {
-    if (isLocalDocker) {
-      // Use standard pg pool for local Docker PostgreSQL
-      const pool = getPool();
-      const result = await pool.query(queryText, params);
-      return result.rows as T[];
-    } else {
+    // Always use pg pool for Node environment (including Vercel Node Runtime)
+    // Neon HTTP driver (getSql) now requires tagged templates which 'query' helper doesn't support easily.
+    // Also pg is more robust for general Node usage.
+    // We strictly use getSql() aka neon() only if we are specifically not able to use pg (unlikely in this stack).
+    
+    const pool = getPool();
+    const result = await pool.query(queryText, params);
+    return result.rows as T[];
+
+    /* 
+    Legacy Neon driver support:
+    else {
       // Use Neon serverless for production
       // @ts-ignore - Neon driver signature handling
       const result = await getSql()(queryText, params);
       return result as T[];
     }
+    */
   } catch (error) {
     console.error('Database query error:', error);
     throw error;

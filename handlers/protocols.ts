@@ -20,7 +20,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const path = req.url?.split('?')[0] || '';
   const pathParts = path.split('/');
   
-  const id = pathParts.find(p => !isNaN(parseInt(p)) && parseInt(p) > 0);
+  // Extract ID (UUID support)
+  // Assumes structure /api/protocols/:id or /protocols/:id
+  const protocolsIndex = pathParts.indexOf('protocols');
+  const id = (protocolsIndex !== -1 && pathParts.length > protocolsIndex + 1 && pathParts[protocolsIndex + 1]) 
+    ? pathParts[protocolsIndex + 1] 
+    : null;
   
   // GET /api/protocols
   if (req.method === 'GET' && !id && (path.endsWith('/protocols') || path.endsWith('/protocols/'))) {
@@ -221,7 +226,23 @@ async function listProtocols(userId: string, req: VercelRequest, res: VercelResp
         }))
       };
     }));
-const auth = getAuthFromRequest(req);
+    
+    return json(res, protocolsWithElements);
+  } catch (err: any) {
+    return error(res, err.message, 500, req);
+  }
+}
+
+async function createProtocol(userId: string, req: VercelRequest, res: VercelResponse) {
+  try {
+    const { name, description, icon, status, organization_id } = req.body;
+    
+    // B-SEC-01: Input Validation
+    if (!name || typeof name !== 'string') {
+        return error(res, 'Invalid name', 400, req);
+    }
+    
+    const auth = getAuthFromRequest(req);
     const isGlobalAdmin = (auth?.permissions || []).includes('admin');
 
     if (organization_id) {
@@ -240,20 +261,7 @@ const auth = getAuthFromRequest(req);
         // Global/Public protocol creation - Only Global Admin
         if (!isGlobalAdmin) {
             return error(res, 'Only global admins can create global protocols', 403, req);
-      if (organization_id) {
-      const membership = await query(
-        `SELECT role FROM organization_members 
-         WHERE organization_id = $1 AND user_id = $2 AND status = 'active'`,
-        [organization_id, userId]
-      );
-      
-      const auth = getAuthFromRequest(req);
-      const isGlobalAdmin = (auth?.permissions || []).includes('admin');
-      const isOrgAdmin = membership.length > 0 && ['admin', 'manager'].includes(membership[0].role);
-      
-      if (!isGlobalAdmin && !isOrgAdmin) {
-        return error(res, 'You do not have permission to create protocols for this organization', 403, req);
-      }
+        }
     }
 
     const result = await query(
@@ -317,11 +325,26 @@ async function deleteProtocol(userId: string, id: string, req: VercelRequest, re
     if (protocol.length === 0) return error(res, 'Protocol not found', 404, req);
     
     const auth = getAuthFromRequest(req);
+    const userId = auth?.sub;
     const isGlobalAdmin = (auth?.permissions || []).includes('admin');
     const isCreator = protocol[0].creator_id === userId;
     
-    if (!isGlobalAdmin && !isCreator) {
-      return error(res, 'You do not have permission to delete this protocol', 403, req);
+    // console.log('DEBUG DELETE:', { userId, id, isGlobalAdmin, isCreator });
+
+    if (!isGlobalAdmin && !isCreator && userId) {
+        // Check if Org Admin
+        let isOrgAdmin = false;
+        if (protocol[0].organization_id) {
+             const membership = await query(
+                `SELECT role FROM organization_members WHERE organization_id = $1 AND user_id = $2 AND status = 'active'`,
+                [protocol[0].organization_id, userId]
+             );
+             isOrgAdmin = membership.length > 0 && ['admin', 'owner'].includes(membership[0].role);
+        }
+        
+        if (!isOrgAdmin) {
+            return error(res, 'You do not have permission to delete this protocol', 403, req);
+        }
     }
     
     await query(`DELETE FROM protocols WHERE id = $1`, [id]);
@@ -344,6 +367,8 @@ async function getProtocol(id: string, res: VercelResponse, req: VercelRequest) 
     if (protocols.length === 0) return error(res, 'Protocol not found', 404, req);
     
     const protocol = protocols[0];
+
+    // Get protocol elements
     const elements = await query(
       `SELECT * FROM protocol_elements WHERE protocol_id = $1 ORDER BY display_order, created_at`,
       [id]
@@ -637,6 +662,17 @@ async function logProtocolElement(userId: string, protocolId: string, req: Verce
     
     const result = await query(
       `INSERT INTO protocol_element_logs 
+         (element_id, user_id, completed, value, text_value, points_earned, log_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (element_id, user_id, log_date) DO UPDATE SET
+         completed = EXCLUDED.completed,
+         value = EXCLUDED.value,
+         text_value = EXCLUDED.text_value,
+         points_earned = EXCLUDED.points_earned,
+         logged_at = NOW()
+       RETURNING *`,
+      [element_id, userId, completed || false, value, text_value, pointsEarned, dateToLog]
+    );
 
     // B-CALC-01: Bonus for full protocol completion (50 points)
     const requiredElements = await query(
@@ -675,17 +711,6 @@ async function logProtocolElement(userId: string, protocolId: string, req: Verce
              }
         }
     }
-         (element_id, user_id, completed, value, text_value, points_earned, log_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (element_id, user_id, log_date) DO UPDATE SET
-         completed = EXCLUDED.completed,
-         value = EXCLUDED.value,
-         text_value = EXCLUDED.text_value,
-         points_earned = EXCLUDED.points_earned,
-         logged_at = NOW()
-       RETURNING *`,
-      [element_id, userId, completed || false, value, text_value, pointsEarned, dateToLog]
-    );
     
     return json(res, {
       ...result[0],

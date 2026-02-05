@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
   privacy_public_leaderboard VARCHAR(50) DEFAULT 'visible',
   privacy_challenge_leaderboard VARCHAR(50) DEFAULT 'visible',
   roles TEXT[] DEFAULT ARRAY['user'],
+  primary_organization_id UUID, -- For multi-tenant context
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -195,7 +196,8 @@ CREATE TABLE IF NOT EXISTS challenge_task_logs (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   value INT,
   log_date DATE DEFAULT CURRENT_DATE,
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(task_id, user_id, log_date)
 );
 
 CREATE INDEX IF NOT EXISTS idx_challenge_task_logs_task_id ON challenge_task_logs(task_id);
@@ -261,3 +263,33 @@ CREATE INDEX IF NOT EXISTS idx_user_protocols_user ON user_protocols(user_id);
 
 -- Users Roles
 ALTER TABLE users ADD COLUMN IF NOT EXISTS roles TEXT[] DEFAULT ARRAY['user'];
+
+-- Admin Audit Logs
+CREATE TABLE IF NOT EXISTS admin_audit_logs (
+  id SERIAL PRIMARY KEY,
+  admin_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  action VARCHAR(50) NOT NULL,
+  target_type VARCHAR(50), 
+  target_id VARCHAR(255),
+  previous_state JSONB,
+  new_state JSONB,
+  ip_address VARCHAR(45),
+  user_agent TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_admin_id ON admin_audit_logs(admin_id);
+CREATE INDEX IF NOT EXISTS idx_audit_created_at ON admin_audit_logs(created_at);
+
+-- Add unique constraint for challenge_task_logs
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'challenge_task_logs_task_id_user_id_log_date_key'
+    ) THEN
+        ALTER TABLE challenge_task_logs 
+        ADD CONSTRAINT challenge_task_logs_task_id_user_id_log_date_key 
+        UNIQUE (task_id, user_id, log_date);
+    END IF;
+END $$;

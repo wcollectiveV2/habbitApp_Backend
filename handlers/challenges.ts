@@ -26,6 +26,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return getActiveChallenges(userId, res, req);
   }
 
+  // GET /api/challenges/all-tasks - Get all tasks from all joined challenges
+  if (req.method === 'GET' && path.includes('/all-tasks')) {
+    return getAllChallengeTasks(userId, res, req);
+  }
+
   // GET /api/challenges/discover - Discover challenges
   if (req.method === 'GET' && path.includes('/discover')) {
     return discoverChallenges(userId, req, res);
@@ -356,23 +361,26 @@ async function getChallenge(userId: string, challengeId: string, res: VercelResp
         [challengeId, userId]
       );
 
+      // Get unique participants (deduplicate by user_id), sorted by progress - NO LIMIT to show all
       const participantsRaw = await query(
-        `SELECT cp.*, 
-          CASE 
-            WHEN u.privacy_challenge_leaderboard = 'anonymous' AND u.id != $2 THEN 'Anonymous User'
-            ELSE u.name 
-          END as user_name,
-          CASE 
-            WHEN u.privacy_challenge_leaderboard = 'anonymous' AND u.id != $2 THEN NULL 
-            ELSE u.avatar_url 
-          END as user_avatar, 
-          u.total_points as user_points
-        FROM challenge_participants cp
-        JOIN users u ON cp.user_id = u.id
-        WHERE cp.challenge_id = $1
-          AND (u.privacy_challenge_leaderboard IS DISTINCT FROM 'hidden' OR u.id = $2)
-        ORDER BY cp.progress DESC
-        LIMIT 10`,
+        `SELECT * FROM (
+          SELECT DISTINCT ON (cp.user_id) cp.*, 
+            CASE 
+              WHEN u.privacy_challenge_leaderboard = 'anonymous' AND u.id != $2 THEN 'Anonymous User'
+              ELSE u.name 
+            END as user_name,
+            CASE 
+              WHEN u.privacy_challenge_leaderboard = 'anonymous' AND u.id != $2 THEN NULL 
+              ELSE u.avatar_url 
+            END as user_avatar, 
+            u.total_points as user_points
+          FROM challenge_participants cp
+          JOIN users u ON cp.user_id = u.id
+          WHERE cp.challenge_id = $1
+            AND (u.privacy_challenge_leaderboard IS DISTINCT FROM 'hidden' OR u.id = $2)
+          ORDER BY cp.user_id, cp.id DESC
+        ) AS unique_participants
+        ORDER BY progress DESC`,
         [challengeId, userId]
       );
 
@@ -608,17 +616,42 @@ async function logChallengeProgress(userId: string, challengeId: string, req: Ve
 
     try {
       if (taskId) {
-        // Log specific task progress
-        await query(
-          `INSERT INTO challenge_task_logs (task_id, user_id, value, log_date)
-           VALUES ($1, $2, $3, $4)`,
-          [taskId, userId, value || (completed ? 1 : 0), logDate]
-        );
+        // Handle per-task progress logging
+        // For numeric tasks, always upsert with the provided value
+        // For boolean tasks, insert on complete, delete on uncomplete
+        if (value !== undefined && value > 0) {
+          // Numeric task - upsert with exact value
+          await query(
+            `INSERT INTO challenge_task_logs (task_id, user_id, value, log_date)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (task_id, user_id, log_date) 
+             DO UPDATE SET value = $3`,
+            [taskId, userId, value, logDate]
+          );
+        } else if (completed) {
+          // Boolean task marked complete - set value to 1
+          await query(
+            `INSERT INTO challenge_task_logs (task_id, user_id, value, log_date)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (task_id, user_id, log_date) 
+             DO UPDATE SET value = $3`,
+            [taskId, userId, 1, logDate]
+          );
+        } else {
+          // Uncomplete task - remove the log for today (or set to 0 for numeric)
+          await query(
+            `DELETE FROM challenge_task_logs 
+             WHERE task_id = $1 AND user_id = $2 AND log_date = $3`,
+            [taskId, userId, logDate]
+          );
+        }
 
         // Check if all tasks for the challenge are completed today
         const tasks = await query('SELECT * FROM challenge_tasks WHERE challenge_id = $1', [challengeId]);
         
-        let allCompleted = true;
+        let allCompleted = tasks.length > 0;
+        let completedTaskCount = 0;
+        
         for (const task of tasks) {
           const logs = await query(
             `SELECT SUM(value) as total FROM challenge_task_logs 
@@ -629,14 +662,23 @@ async function logChallengeProgress(userId: string, challengeId: string, req: Ve
           const current = parseInt(logs[0]?.total || '0');
           const target = task.target_value || 1;
           
-          if (current < target) {
+          if (current >= target) {
+            completedTaskCount++;
+          } else {
             allCompleted = false;
-            break;
           }
         }
         
-        // If all tasks completed, mark the day as completed in challenge_logs
-        if (allCompleted) {
+        // Check prior state for point calculation
+        const priorState = await query<{ completed: boolean }>(
+          `SELECT completed FROM challenge_logs WHERE challenge_id = $1 AND user_id = $2 AND date = $3`,
+          [challengeId, userId, logDate]
+        );
+        const wasCompleted = priorState[0]?.completed === true;
+
+        // Update challenge_logs based on task completion status
+        if (allCompleted && tasks.length > 0) {
+           // All tasks completed - mark day as complete
            await query(
             `INSERT INTO challenge_logs (challenge_id, user_id, date, completed, value)
             VALUES ($1, $2, $3, $4, $5)
@@ -644,9 +686,43 @@ async function logChallengeProgress(userId: string, challengeId: string, req: Ve
             DO UPDATE SET completed = $4, value = $5, logged_at = NOW()`,
             [challengeId, userId, logDate, true, 100]
           );
+
+           // Award points for challenge day completion (e.g. 20 points) - ONLY IF NEWLY COMPLETED
+           if (!wasCompleted) {
+              await query(
+                `UPDATE users SET total_points = COALESCE(total_points, 0) + 20 WHERE id = $1`,
+                [userId]
+              );
+           }
+
+        } else if (tasks.length > 0) {
+           // Not all tasks completed - mark day as incomplete
+           await query(
+            `INSERT INTO challenge_logs (challenge_id, user_id, date, completed, value)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (challenge_id, user_id, date) 
+            DO UPDATE SET completed = $4, value = $5, logged_at = NOW()`,
+            [challengeId, userId, logDate, false, Math.round((completedTaskCount / tasks.length) * 100)]
+          );
+
+           // Deduct points if it WAS completed and now is not
+           if (wasCompleted) {
+              await query(
+                `UPDATE users SET total_points = GREATEST(0, COALESCE(total_points, 0) - 20) WHERE id = $1`,
+                [userId]
+              );
+           }
         }
       } else {
-        // Log the progress (upsert) - Legacy/Single task
+        // Log the progress (upsert) - Legacy/Single task challenges
+
+        // Check prior state
+        const priorState = await query<{ completed: boolean }>(
+          `SELECT completed FROM challenge_logs WHERE challenge_id = $1 AND user_id = $2 AND date = $3`,
+          [challengeId, userId, logDate]
+        );
+        const wasCompleted = priorState[0]?.completed === true;
+
         await query(
           `INSERT INTO challenge_logs (challenge_id, user_id, date, completed, value)
           VALUES ($1, $2, $3, $4, $5)
@@ -654,6 +730,21 @@ async function logChallengeProgress(userId: string, challengeId: string, req: Ve
           DO UPDATE SET completed = $4, value = $5, logged_at = NOW()`,
           [challengeId, userId, logDate, completed, value || 0]
         );
+
+        // State transition logic for points
+        if (completed && !wasCompleted) {
+           // Award points
+           await query(
+             `UPDATE users SET total_points = COALESCE(total_points, 0) + 20 WHERE id = $1`,
+             [userId]
+           );
+        } else if (!completed && wasCompleted) {
+           // Remove points
+           await query(
+             `UPDATE users SET total_points = GREATEST(0, COALESCE(total_points, 0) - 20) WHERE id = $1`,
+             [userId]
+           );
+        }
       }
 
       // Count completed days and calculate progress
@@ -670,21 +761,40 @@ async function logChallengeProgress(userId: string, challengeId: string, req: Ve
 
       const completedDays = parseInt(stats[0]?.completed_days || '0');
       const targetDays = stats[0]?.target_days || 30;
-      const progress = Math.round((completedDays / targetDays) * 100);
+      const overallProgress = Math.round((completedDays / targetDays) * 100);
+
+      // For challenges with tasks, also calculate today's task completion percentage
+      let todayTaskProgress = 0;
+      const tasksForProgress = await query('SELECT * FROM challenge_tasks WHERE challenge_id = $1', [challengeId]);
+      if (tasksForProgress.length > 0) {
+        let completedToday = 0;
+        for (const task of tasksForProgress) {
+          const taskLogs = await query(
+            `SELECT SUM(value) as total FROM challenge_task_logs 
+             WHERE task_id = $1 AND user_id = $2 AND log_date = CURRENT_DATE`,
+            [task.id, userId]
+          );
+          if (parseInt(taskLogs[0]?.total || '0') >= (task.target_value || 1)) {
+            completedToday++;
+          }
+        }
+        todayTaskProgress = Math.round((completedToday / tasksForProgress.length) * 100);
+      }
 
       // Update participant stats
       await query(
         `UPDATE challenge_participants 
         SET completed_days = $1, progress = $2
         WHERE challenge_id = $3 AND user_id = $4`,
-        [completedDays, progress, challengeId, userId]
+        [completedDays, overallProgress, challengeId, userId]
       );
 
       return json(res, {
         success: true,
-        progress,
+        progress: overallProgress,
         completedDays,
-        todayCompleted: completed
+        todayCompleted: completed,
+        todayTaskProgress
       }, 200, req);
     } catch (dbError: any) {
       console.error('DB error logging progress:', dbError);
@@ -698,21 +808,25 @@ async function logChallengeProgress(userId: string, challengeId: string, req: Ve
 async function getChallengeLeaderboard(userId: string, challengeId: string, res: VercelResponse, req: VercelRequest) {
   try {
     try {
+      // Get unique participants (deduplicate by user_id), sorted by progress
       const participants = await query(
-        `SELECT cp.*, 
-          CASE 
-            WHEN u.privacy_challenge_leaderboard = 'anonymous' AND u.id != $2 THEN 'Anonymous User'
-            ELSE u.name 
-          END as user_name, 
-          CASE 
-             WHEN u.privacy_challenge_leaderboard = 'anonymous' AND u.id != $2 THEN NULL 
-             ELSE u.avatar_url 
-          END as user_avatar
-        FROM challenge_participants cp
-        JOIN users u ON cp.user_id = u.id
-        WHERE cp.challenge_id = $1
-          AND (u.privacy_challenge_leaderboard IS DISTINCT FROM 'hidden' OR u.id = $2)
-        ORDER BY cp.progress DESC, cp.completed_days DESC`,
+        `SELECT * FROM (
+          SELECT DISTINCT ON (cp.user_id) cp.*, 
+            CASE 
+              WHEN u.privacy_challenge_leaderboard = 'anonymous' AND u.id != $2 THEN 'Anonymous User'
+              ELSE u.name 
+            END as user_name, 
+            CASE 
+               WHEN u.privacy_challenge_leaderboard = 'anonymous' AND u.id != $2 THEN NULL 
+               ELSE u.avatar_url 
+            END as user_avatar
+          FROM challenge_participants cp
+          JOIN users u ON cp.user_id = u.id
+          WHERE cp.challenge_id = $1
+            AND (u.privacy_challenge_leaderboard IS DISTINCT FROM 'hidden' OR u.id = $2)
+          ORDER BY cp.user_id, cp.id DESC
+        ) AS unique_participants
+        ORDER BY progress DESC, completed_days DESC`,
         [challengeId, userId]
       );
 
@@ -722,5 +836,55 @@ async function getChallengeLeaderboard(userId: string, challengeId: string, res:
     }
   } catch (err: any) {
     return error(res, err.message || 'Failed to get leaderboard', 500, req);
+  }
+}
+
+// Get all tasks from all challenges the user is participating in
+async function getAllChallengeTasks(userId: string, res: VercelResponse, req: VercelRequest) {
+  try {
+    // Get all tasks from active challenges the user has joined, with today's progress
+    const tasks = await query(
+      `SELECT 
+        ct.id,
+        ct.challenge_id,
+        ct.title,
+        ct.description,
+        ct.type,
+        ct.target_value,
+        ct.unit,
+        c.title as challenge_title,
+        c.icon as challenge_icon,
+        COALESCE((
+          SELECT SUM(value) 
+          FROM challenge_task_logs 
+          WHERE task_id = ct.id AND user_id = $1 AND log_date = CURRENT_DATE
+        ), 0) as current_value
+      FROM challenge_tasks ct
+      JOIN challenges c ON ct.challenge_id = c.id
+      JOIN challenge_participants cp ON c.id = cp.challenge_id AND cp.user_id = $1
+      WHERE c.status = 'active'
+      ORDER BY c.title, ct.id`,
+      [userId]
+    );
+
+    // Format the response
+    const formattedTasks = tasks.map((t: any) => ({
+      id: t.id,
+      challengeId: t.challenge_id,
+      challengeTitle: t.challenge_title,
+      challengeIcon: t.challenge_icon,
+      title: t.title,
+      description: t.description,
+      type: t.type || 'boolean',
+      targetValue: t.target_value || 1,
+      unit: t.unit,
+      currentValue: parseInt(t.current_value || '0'),
+      isCompleted: parseInt(t.current_value || '0') >= (t.target_value || 1)
+    }));
+
+    return json(res, formattedTasks, 200, req);
+  } catch (err: any) {
+    console.error('Failed to get all challenge tasks:', err);
+    return json(res, [], 200, req); // Return empty array on error
   }
 }

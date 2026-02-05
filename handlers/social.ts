@@ -69,24 +69,75 @@ async function getLeaderboard(userId: string, req: VercelRequest, res: VercelRes
     const { scope = 'global', period = 'weekly', limit = '10', offset = '0' } = req.query;
 
     try {
-      let queryText = `
-        SELECT u.id as user_id, 
-               CASE 
-                 WHEN u.privacy_public_leaderboard = 'anonymous' AND u.id != $1 THEN 'Anonymous User'
-                 ELSE u.name 
-               END as user_name, 
-               CASE 
-                 WHEN u.privacy_public_leaderboard = 'anonymous' AND u.id != $1 THEN NULL 
-                 ELSE u.avatar_url 
-               END as user_avatar, 
-               COALESCE(u.total_points, 0) as points, 
-               COALESCE(u.current_streak, 0) as streak_days,
-               u.id = $1 as is_current_user
-        FROM users u
-        WHERE (u.privacy_public_leaderboard IS DISTINCT FROM 'hidden' OR u.id = $1)
-      `;
-
+      let queryText;
       const params: any[] = [userId];
+
+      if (period === 'allTime') {
+        // For all-time, trust the accrued total_points which includes habits and challenges
+        queryText = `
+          SELECT u.id as user_id, 
+                 CASE 
+                   WHEN u.privacy_public_leaderboard = 'anonymous' AND u.id != $1 THEN 'Anonymous User'
+                   ELSE u.name 
+                 END as user_name, 
+                 CASE 
+                   WHEN u.privacy_public_leaderboard = 'anonymous' AND u.id != $1 THEN NULL 
+                   ELSE u.avatar_url 
+                 END as user_avatar, 
+                 COALESCE(u.total_points, 0) as points, 
+                 COALESCE(u.current_streak, 0) as streak_days,
+                 u.id = $1 as is_current_user
+          FROM users u
+          WHERE (u.privacy_public_leaderboard IS DISTINCT FROM 'hidden' OR u.id = $1)
+        `;
+      } else {
+        // For specific periods, calculate points dynamically from habit logs (activity proxy)
+        // This is more accurate for "weekly/daily" than trying to snapshot total_points
+        let dateFilter = "";
+        let challengeDateFilter = "";
+        
+        if (period === 'daily') {
+          dateFilter = "AND completed_at >= CURRENT_DATE";
+          challengeDateFilter = "AND date = CURRENT_DATE";
+        } else if (period === 'weekly') {
+          dateFilter = "AND completed_at >= NOW() - INTERVAL '7 days'";
+          challengeDateFilter = "AND date >= CURRENT_DATE - INTERVAL '7 days'";
+        } else if (period === 'monthly') {
+          dateFilter = "AND completed_at >= NOW() - INTERVAL '30 days'";
+          challengeDateFilter = "AND date >= CURRENT_DATE - INTERVAL '30 days'";
+        }
+
+        queryText = `
+          WITH habit_scores AS (
+            SELECT user_id, COUNT(*) * 10 as score
+            FROM habit_logs
+            WHERE 1=1 ${dateFilter}
+            GROUP BY user_id
+          ),
+          challenge_scores AS (
+            SELECT user_id, COUNT(*) * 20 as score
+            FROM challenge_logs
+            WHERE completed = true ${challengeDateFilter}
+            GROUP BY user_id
+          )
+          SELECT u.id as user_id, 
+                 CASE 
+                   WHEN u.privacy_public_leaderboard = 'anonymous' AND u.id != $1 THEN 'Anonymous User'
+                   ELSE u.name 
+                 END as user_name, 
+                 CASE 
+                   WHEN u.privacy_public_leaderboard = 'anonymous' AND u.id != $1 THEN NULL 
+                   ELSE u.avatar_url 
+                 END as user_avatar, 
+                 COALESCE(hs.score, 0) + COALESCE(cs.score, 0) as points, 
+                 COALESCE(u.current_streak, 0) as streak_days,
+                 u.id = $1 as is_current_user
+          FROM users u
+          LEFT JOIN habit_scores hs ON u.id = hs.user_id
+          LEFT JOIN challenge_scores cs ON u.id = cs.user_id
+          WHERE (u.privacy_public_leaderboard IS DISTINCT FROM 'hidden' OR u.id = $1)
+        `;
+      }
 
       if (scope === 'friends') {
         queryText += `
@@ -97,6 +148,18 @@ async function getLeaderboard(userId: string, req: VercelRequest, res: VercelRes
         `;
       }
 
+      if (scope === 'organization') {
+        queryText += `
+          AND u.id IN (
+            SELECT user_id FROM organization_members 
+            WHERE organization_id IN (
+              SELECT organization_id FROM organization_members WHERE user_id = $1 AND status = 'active'
+            )
+          )
+        `;
+      }
+
+      // Order by calculated points
       queryText += ` ORDER BY points DESC, streak_days DESC LIMIT $2 OFFSET $3`;
       params.push(parseInt(limit as string), parseInt(offset as string));
 
@@ -114,7 +177,89 @@ async function getLeaderboard(userId: string, req: VercelRequest, res: VercelRes
       }));
 
       // Get current user's rank if not in list
-      const currentUserRank = rankedEntries.find((e: any) => e.isCurrentUser);
+      let currentUserRank = rankedEntries.find((e: any) => e.isCurrentUser);
+
+      // If user is not in the top results, fetch their specific rank and score
+      if (!currentUserRank) {
+         try {
+           let myPoints = 0;
+           let myRank = 0;
+
+           if (period === 'allTime') {
+             // Simple query for all time
+             const myData = await query<{total_points: number}>('SELECT total_points FROM users WHERE id = $1', [userId]);
+             myPoints = myData[0]?.total_points || 0;
+             
+             // Count users with more points
+             const rankData = await query<{count: string}>('SELECT COUNT(*) as count FROM users WHERE total_points > $1', [myPoints]);
+             myRank = parseInt(rankData[0]?.count || '0') + 1;
+
+           } else {
+             // Dynamic query for periods
+             let dateFilter = "";
+             let challengeDateFilter = "";
+             
+             if (period === 'daily') {
+               dateFilter = "AND completed_at >= CURRENT_DATE";
+               challengeDateFilter = "AND date = CURRENT_DATE";
+             } else if (period === 'weekly') {
+               dateFilter = "AND completed_at >= NOW() - INTERVAL '7 days'";
+               challengeDateFilter = "AND date >= CURRENT_DATE - INTERVAL '7 days'";
+             } else if (period === 'monthly') {
+               dateFilter = "AND completed_at >= NOW() - INTERVAL '30 days'";
+               challengeDateFilter = "AND date >= CURRENT_DATE - INTERVAL '30 days'";
+             }
+
+             // 1. Get my score
+             const myScoreData = await query<{points: number}>(`
+                WITH habit_scores AS (
+                  SELECT COUNT(*) * 10 as score FROM habit_logs WHERE user_id = $1 ${dateFilter}
+                ),
+                challenge_scores AS (
+                  SELECT COUNT(*) * 20 as score FROM challenge_logs WHERE user_id = $1 AND completed = true ${challengeDateFilter}
+                )
+                SELECT (COALESCE((SELECT score FROM habit_scores), 0) + COALESCE((SELECT score FROM challenge_scores), 0)) as points
+             `, [userId]);
+             
+             myPoints = parseInt(myScoreData[0]?.points as any || '0');
+
+             // 2. Get my rank (expensive but necessary if we want accurate rank)
+             // Simplified: just return > 99 if deep, or estimate. 
+             // For now, let's just count how many users have MORE score.
+             const rankQuery = await query<{count: string}>(`
+                WITH all_scores AS (
+                    SELECT 
+                      u.id,
+                      (
+                        COALESCE((SELECT COUNT(*) * 10 FROM habit_logs WHERE user_id = u.id ${dateFilter}), 0) + 
+                        COALESCE((SELECT COUNT(*) * 20 FROM challenge_logs WHERE user_id = u.id AND completed = true ${challengeDateFilter}), 0)
+                      ) as total_score
+                    FROM users u
+                )
+                SELECT COUNT(*) as count FROM all_scores WHERE total_score > $1
+             `, [myPoints]);
+             
+             myRank = parseInt(rankQuery[0]?.count || '0') + 1;
+           }
+
+           // Get basic user info
+           const userInfo = await query('SELECT name, avatar_url FROM users WHERE id = $1', [userId]);
+           
+           if (userInfo.length > 0) {
+              currentUserRank = {
+                rank: myRank,
+                userId: userId,
+                name: userInfo[0].name,
+                avatar: userInfo[0].avatar_url,
+                points: myPoints,
+                streakDays: 0, // Simplified
+                isCurrentUser: true
+              };
+           }
+         } catch (e) {
+           console.log('Error fetching current user rank:', e);
+         }
+      }
 
       const total = await query('SELECT COUNT(*) as count FROM users', []);
 
@@ -123,21 +268,9 @@ async function getLeaderboard(userId: string, req: VercelRequest, res: VercelRes
         currentUserRank,
         total: total[0]?.count || 0
       }, 200, req);
-    } catch (dbError) {
-      // Return sample leaderboard data
-      const sampleEntries = [
-        { rank: 1, userId: 'u1', userName: 'Sarah Wilson', userAvatar: 'https://i.pravatar.cc/150?u=sarah', points: 2450, streakDays: 45, isCurrentUser: false },
-        { rank: 2, userId: 'u2', userName: 'James Miller', userAvatar: 'https://i.pravatar.cc/150?u=james', points: 2210, streakDays: 38, isCurrentUser: false },
-        { rank: 3, userId: userId, userName: 'You', userAvatar: 'https://i.pravatar.cc/150?u=you', points: 2100, streakDays: 30, isCurrentUser: true },
-        { rank: 4, userId: 'u4', userName: 'Emily Chen', userAvatar: 'https://i.pravatar.cc/150?u=emily', points: 1980, streakDays: 25, isCurrentUser: false },
-        { rank: 5, userId: 'u5', userName: 'David Park', userAvatar: 'https://i.pravatar.cc/150?u=david', points: 1850, streakDays: 22, isCurrentUser: false },
-      ];
-
-      return json(res, {
-        entries: sampleEntries,
-        currentUserRank: sampleEntries[2],
-        total: 100
-      }, 200, req);
+    } catch (dbError: any) {
+      console.error('Database error in getLeaderboard:', dbError);
+      return error(res, 'Database error: ' + dbError.message, 500, req);
     }
   } catch (err: any) {
     return error(res, err.message || 'Failed to get leaderboard', 500, req);

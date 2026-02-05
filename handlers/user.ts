@@ -211,6 +211,8 @@ async function getStats(userId: string, res: VercelResponse, req: VercelRequest)
     );
 
     // Get total points from user
+    // We trust duplicate sources (table column) for "All Time" stats on homepage for performance
+    // This column is updated by habits and challenges handlers
     const userPoints = await query<{ total_points: number; current_streak: number }>(
       `SELECT COALESCE(total_points, 0) as total_points, COALESCE(current_streak, 0) as current_streak FROM users WHERE id = $1`,
       [userId]
@@ -221,14 +223,16 @@ async function getStats(userId: string, res: VercelResponse, req: VercelRequest)
       [userId]
     );
 
+    const points = userPoints[0]?.total_points || 0;
+
     return json(res, {
       totalHabits: stats[0]?.total_habits || 0,
       completedToday: stats[0]?.completed_today || 0,
       currentStreak: userPoints[0]?.current_streak || stats[0]?.streak || 0,
       streakCount: userPoints[0]?.current_streak || stats[0]?.streak || 0,
-      totalPoints: userPoints[0]?.total_points || 0,
-      currentXp: userPoints[0]?.total_points || 0,
-      level: Math.floor((userPoints[0]?.total_points || 0) / 100) + 1,
+      totalPoints: points,
+      currentXp: points,
+      level: Math.floor(points / 100) + 1,
       totalToday: totalTasks[0]?.count || 0,
     }, 200, req);
   } catch (err: any) {

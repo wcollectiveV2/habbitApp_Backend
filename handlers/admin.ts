@@ -42,15 +42,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // GET /api/admin/stats - Get platform statistics
   if (req.method === 'GET' && resource === 'stats') {
-    return getStats(req, res);
+    return getStats(req, res, userId, isSuperAdmin);
+  }
+
+  // GET /api/admin/notifications - Get admin notifications
+  if (req.method === 'GET' && resource === 'notifications') {
+    return getAdminNotifications(req, res, userId, isSuperAdmin);
+  }
+
+  // POST /api/admin/notifications/mark-all-read - Mark all admin notifications as read
+  if (req.method === 'POST' && resource === 'notifications' && resourceId === 'mark-all-read') {
+    return markAllAdminNotificationsRead(req, res, userId);
+  }
+
+  // PATCH /api/admin/notifications/:id/read - Mark single notification as read
+  if (req.method === 'PATCH' && resource === 'notifications' && resourceId && action === 'read') {
+    return markAdminNotificationRead(req, res, userId, resourceId);
   }
 
   // GET /api/admin/audit - Get audit logs (super_admin only)
   if (req.method === 'GET' && resource === 'audit') {
-    if (!isSuperAdmin) {
-      return error(res, 'Super admin access required', 403, req);
-    }
-    return getAuditLogs(req, res);
+    return getAuditLogs(req, res, userId, isSuperAdmin);
   }
 
   // GET /api/admin/organizations - Get all organizations with hierarchy
@@ -149,37 +161,143 @@ async function logAdminAction(
 /**
  * Get platform statistics
  */
-async function getStats(req: VercelRequest, res: VercelResponse) {
+async function getStats(req: VercelRequest, res: VercelResponse, userId: string, isSuperAdmin: boolean) {
   try {
+    let orgIds: string[] = [];
+    let filterByOrg = false;
+
+    if (!isSuperAdmin) {
+       // Get organizations where user is admin
+       const orgs = await query<{organization_id: string}>(
+         "SELECT organization_id FROM organization_members WHERE user_id = $1 AND role = 'admin'",
+         [userId]
+       );
+       orgIds = orgs.map((o: any) => o.organization_id);
+       
+       if (orgIds.length === 0) {
+           return json(res, {
+               totalUsers: 0,
+               totalOrganizations: 0,
+               activeChallenges: 0,
+               activeUsersLast7Days: 0,
+               organizationsByType: {},
+               usersByRole: {}
+           }, 200, req);
+       }
+       filterByOrg = true;
+    }
+
+    // Build Queries
+    const queries = {
+      users: filterByOrg 
+        ? { text: "SELECT COUNT(DISTINCT user_id) as count FROM organization_members WHERE organization_id = ANY($1)", values: [orgIds] }
+        : { text: "SELECT COUNT(*) as count FROM users", values: [] },
+        
+      orgs: filterByOrg
+        ? { text: "SELECT COUNT(*) as count FROM organizations WHERE id = ANY($1)", values: [orgIds] }
+        : { text: "SELECT COUNT(*) as count FROM organizations", values: [] },
+        
+      challenges: filterByOrg
+        ? { text: "SELECT COUNT(*) as count FROM challenges WHERE status = 'active' AND organization_id = ANY($1)", values: [orgIds] }
+        : { text: "SELECT COUNT(*) as count FROM challenges WHERE status = 'active'", values: [] },
+        
+      activeUsers: filterByOrg
+        ? { text: `
+            SELECT COUNT(DISTINCT cl.user_id) as count 
+            FROM challenge_logs cl
+            JOIN challenges c ON cl.challenge_id = c.id
+            WHERE c.organization_id = ANY($1) 
+            AND cl.logged_at > NOW() - INTERVAL '7 days'
+          `, values: [orgIds] }
+        : { text: `
+            SELECT COUNT(DISTINCT user_id) as count 
+            FROM challenge_logs 
+            WHERE logged_at > NOW() - INTERVAL '7 days'
+          `, values: [] }
+    };
+
     const [
       usersResult,
       orgsResult,
       challengesResult,
       activeUsersResult
     ] = await Promise.all([
-      query('SELECT COUNT(*) as count FROM users'),
-      query('SELECT COUNT(*) as count FROM organizations'),
-      query("SELECT COUNT(*) as count FROM challenges WHERE status = 'active'"),
-      query(`
-        SELECT COUNT(DISTINCT user_id) as count 
-        FROM challenge_logs 
-        WHERE logged_at > NOW() - INTERVAL '7 days'
-      `)
+      query(queries.users.text, queries.users.values),
+      query(queries.orgs.text, queries.orgs.values),
+      query(queries.challenges.text, queries.challenges.values),
+      query(queries.activeUsers.text, queries.activeUsers.values)
     ]);
 
+    // Activity Data (last 7 days)
+    const activityQuery = filterByOrg
+      ? { text: `
+          SELECT 
+            to_char(cl.logged_at, 'Dy') as day,
+            COUNT(*) as tasks,
+            COUNT(DISTINCT cl.user_id) as users 
+          FROM challenge_logs cl
+          JOIN challenges c ON cl.challenge_id = c.id
+          WHERE cl.logged_at > NOW() - INTERVAL '7 days'
+          AND c.organization_id = ANY($1)
+          GROUP BY to_char(cl.logged_at, 'Dy'), date(cl.logged_at)
+          ORDER BY date(cl.logged_at)
+        `, values: [orgIds] }
+      : { text: `
+          SELECT 
+            to_char(logged_at, 'Dy') as day,
+            COUNT(*) as tasks,
+            COUNT(DISTINCT user_id) as users 
+          FROM challenge_logs 
+          WHERE logged_at > NOW() - INTERVAL '7 days'
+          GROUP BY to_char(logged_at, 'Dy'), date(logged_at)
+          ORDER BY date(logged_at)
+        `, values: [] };
+        
+    const activityData = await query<{day: string, tasks: string, users: string}>(activityQuery.text, activityQuery.values);
+
+    // Top Challenges (Active)
+    const topChallengesQuery = filterByOrg
+      ? { text: `
+          SELECT c.title as name, COUNT(cp.user_id)::int as users, COALESCE(AVG(cp.progress), 0)::int as progress
+          FROM challenges c
+          LEFT JOIN challenge_participants cp ON c.id = cp.challenge_id
+          WHERE c.status = 'active' AND c.organization_id = ANY($1)
+          GROUP BY c.id, c.title
+          ORDER BY users DESC
+          LIMIT 4
+        `, values: [orgIds] }
+      : { text: `
+          SELECT c.title as name, COUNT(cp.user_id)::int as users, COALESCE(AVG(cp.progress), 0)::int as progress
+          FROM challenges c
+          LEFT JOIN challenge_participants cp ON c.id = cp.challenge_id
+          WHERE c.status = 'active'
+          GROUP BY c.id, c.title
+          ORDER BY users DESC
+          LIMIT 4
+        `, values: [] };
+
+    const topChallengesData = await query<{name: string, users: number, progress: number}>(topChallengesQuery.text, topChallengesQuery.values);
+    
+    // Assign colors
+    const colors = ['bg-blue-600', 'bg-emerald-600', 'bg-purple-600', 'bg-indigo-600'];
+    const topChallenges = topChallengesData.map((c: any, i: number) => ({
+        ...c,
+        color: colors[i % colors.length]
+    }));
+
     // Get organization breakdown by type
-    const orgTypeBreakdown = await query(`
-      SELECT type, COUNT(*) as count 
-      FROM organizations 
-      GROUP BY type
-    `);
+    const orgTypeQuery = filterByOrg
+        ? { text: "SELECT type, COUNT(*) as count FROM organizations WHERE id = ANY($1) GROUP BY type", values: [orgIds] }
+        : { text: "SELECT type, COUNT(*) as count FROM organizations GROUP BY type", values: [] };
+        
+    const orgTypeBreakdown = await query(orgTypeQuery.text, orgTypeQuery.values);
 
     // Get user role distribution
-    const roleDistribution = await query(`
-      SELECT unnest(roles) as role, COUNT(*) as count 
-      FROM users 
-      GROUP BY role
-    `);
+    const roleQuery = filterByOrg
+        ? { text: "SELECT role, COUNT(*) as count FROM organization_members WHERE organization_id = ANY($1) GROUP BY role", values: [orgIds] }
+        : { text: "SELECT unnest(roles) as role, COUNT(*) as count FROM users GROUP BY role", values: [] };
+
+    const roleDistribution = await query(roleQuery.text, roleQuery.values);
 
     return json(res, {
       totalUsers: parseInt(usersResult[0]?.count || '0'),
@@ -193,7 +311,13 @@ async function getStats(req: VercelRequest, res: VercelResponse) {
       usersByRole: roleDistribution.reduce((acc: any, row: any) => {
         acc[row.role] = parseInt(row.count);
         return acc;
-      }, {})
+      }, {}),
+      activityData: activityData.map((row: any) => ({
+        day: row.day,
+        tasks: parseInt(row.tasks),
+        users: parseInt(row.users)
+      })),
+      topChallenges
     }, 200, req);
   } catch (err: any) {
     console.error('Get stats error:', err);
@@ -204,9 +328,22 @@ async function getStats(req: VercelRequest, res: VercelResponse) {
 /**
  * Get audit logs (super_admin only)
  */
-async function getAuditLogs(req: VercelRequest, res: VercelResponse) {
+async function getAuditLogs(req: VercelRequest, res: VercelResponse, userId: string, isSuperAdmin: boolean) {
   try {
     const { limit = '50', offset = '0', action, targetType, adminId } = req.query;
+
+    let orgIds: string[] = [];
+    if (!isSuperAdmin) {
+       const orgs = await query<{organization_id: string}>(
+         "SELECT organization_id FROM organization_members WHERE user_id = $1 AND role = 'admin'",
+         [userId]
+       );
+       orgIds = orgs.map((o: any) => o.organization_id);
+       
+       if (orgIds.length === 0) {
+           return json(res, { logs: [], total: 0 }, 200, req);
+       }
+    }
 
     let sqlQuery = `
       SELECT a.*, u.name as admin_name, u.email as admin_email
@@ -216,6 +353,28 @@ async function getAuditLogs(req: VercelRequest, res: VercelResponse) {
     
     const params: any[] = [];
     const conditions: string[] = [];
+
+    if (!isSuperAdmin) {
+        // Complex filter for Org Admin
+        // 1. Actions performed by this admin
+        // 2. Actions on managed organizations
+        // 3. Actions on users in managed organizations
+        const orgsParamIdx = params.length + 1;
+        const userParamIdx = params.length + 2;
+        
+        conditions.push(`(
+          a.admin_id = $${userParamIdx} 
+          OR 
+          (a.target_type = 'organization' AND a.target_id = ANY($${orgsParamIdx}))
+          OR
+          (a.target_type = 'user' AND EXISTS (
+            SELECT 1 FROM organization_members om 
+            WHERE om.user_id::text = a.target_id AND om.organization_id = ANY($${orgsParamIdx})
+          ))
+        )`);
+        params.push(orgIds);
+        params.push(userId);
+    }
 
     if (action) {
       conditions.push(`a.action = $${params.length + 1}`);
@@ -241,6 +400,8 @@ async function getAuditLogs(req: VercelRequest, res: VercelResponse) {
 
     const logs = await query(sqlQuery, params);
 
+    // Also get total count for pagination (simplified, maybe skip for now to save perf)
+    
     return json(res, { logs }, 200, req);
   } catch (err: any) {
     console.error('Get audit logs error:', err);
@@ -613,4 +774,137 @@ async function getUserOrganizations(targetUserId: string, req: VercelRequest, re
     console.error('Get user organizations error:', err);
     return error(res, 'Failed to get user organizations', 500, req);
   }
+}
+
+/**
+ * Get admin notifications
+ * Returns recent platform activity as notifications for admins
+ */
+async function getAdminNotifications(req: VercelRequest, res: VercelResponse, userId: string, isSuperAdmin: boolean) {
+  try {
+    const { limit = '20' } = req.query;
+    const limitNum = Math.min(parseInt(limit as string) || 20, 50);
+
+    // Get recent user registrations (last 7 days)
+    const newUsersQuery = await query(`
+      SELECT id, name, email, created_at 
+      FROM users 
+      WHERE created_at > NOW() - INTERVAL '7 days'
+      ORDER BY created_at DESC
+      LIMIT 10
+    `);
+
+    // Get recent challenge completions
+    const challengeCompletionsQuery = await query(`
+      SELECT 
+        c.title as challenge_title,
+        COUNT(DISTINCT cp.user_id) as completion_count,
+        MAX(cp.updated_at) as last_completion
+      FROM challenges c
+      JOIN challenge_participants cp ON c.id = cp.challenge_id
+      WHERE cp.progress >= 100 
+        AND cp.updated_at > NOW() - INTERVAL '7 days'
+      GROUP BY c.id, c.title
+      ORDER BY last_completion DESC
+      LIMIT 5
+    `);
+
+    // Get recent protocol updates
+    const protocolUpdatesQuery = await query(`
+      SELECT id, title, status, updated_at
+      FROM challenges
+      WHERE updated_at > NOW() - INTERVAL '7 days'
+        AND updated_at != created_at
+      ORDER BY updated_at DESC
+      LIMIT 5
+    `);
+
+    // Build notifications array
+    const notifications: any[] = [];
+    let notifId = 1;
+
+    // Add new user notifications
+    for (const user of newUsersQuery) {
+      const timeDiff = Date.now() - new Date(user.created_at).getTime();
+      const hours = Math.floor(timeDiff / (1000 * 60 * 60));
+      const timeStr = hours < 1 ? 'just now' : hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+      
+      notifications.push({
+        id: `new-user-${notifId++}`,
+        type: 'user_registered',
+        title: 'New user registered',
+        description: `${user.name || user.email} joined the platform`,
+        time: timeStr,
+        unread: hours < 24,
+        created_at: user.created_at,
+        data: { userId: user.id, email: user.email }
+      });
+    }
+
+    // Add challenge completion notifications
+    for (const completion of challengeCompletionsQuery) {
+      const timeDiff = Date.now() - new Date(completion.last_completion).getTime();
+      const hours = Math.floor(timeDiff / (1000 * 60 * 60));
+      const timeStr = hours < 1 ? 'just now' : hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+      
+      notifications.push({
+        id: `challenge-complete-${notifId++}`,
+        type: 'challenge_milestone',
+        title: 'Protocol completed',
+        description: `${completion.completion_count} users completed "${completion.challenge_title}"`,
+        time: timeStr,
+        unread: hours < 12,
+        created_at: completion.last_completion,
+        data: { challengeTitle: completion.challenge_title, count: completion.completion_count }
+      });
+    }
+
+    // Add protocol update notifications
+    for (const protocol of protocolUpdatesQuery) {
+      const timeDiff = Date.now() - new Date(protocol.updated_at).getTime();
+      const hours = Math.floor(timeDiff / (1000 * 60 * 60));
+      const timeStr = hours < 1 ? 'just now' : hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+      
+      notifications.push({
+        id: `protocol-update-${notifId++}`,
+        type: 'system',
+        title: 'Protocol updated',
+        description: `"${protocol.title}" status changed to ${protocol.status}`,
+        time: timeStr,
+        unread: hours < 6,
+        created_at: protocol.updated_at,
+        data: { protocolId: protocol.id, title: protocol.title, status: protocol.status }
+      });
+    }
+
+    // Sort by created_at and limit
+    notifications.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const limitedNotifications = notifications.slice(0, limitNum);
+
+    const unreadCount = limitedNotifications.filter(n => n.unread).length;
+
+    return json(res, {
+      notifications: limitedNotifications,
+      unreadCount
+    }, 200, req);
+  } catch (err: any) {
+    console.error('Get admin notifications error:', err);
+    return error(res, 'Failed to get admin notifications', 500, req);
+  }
+}
+
+/**
+ * Mark all admin notifications as read
+ * For admin notifications, we track read state in localStorage on frontend
+ * This endpoint is a placeholder for potential future database-backed read tracking
+ */
+async function markAllAdminNotificationsRead(req: VercelRequest, res: VercelResponse, userId: string) {
+  return json(res, { success: true, message: 'All notifications marked as read' }, 200, req);
+}
+
+/**
+ * Mark a single admin notification as read
+ */
+async function markAdminNotificationRead(req: VercelRequest, res: VercelResponse, userId: string, notificationId: string) {
+  return json(res, { success: true, notificationId }, 200, req);
 }
