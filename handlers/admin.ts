@@ -101,8 +101,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // GET /api/admin/users/:id/organizations - Get user's organization relationships
-    if (req.method === 'GET' && action === 'organizations') {
-      return getUserOrganizations(resourceId, req, res);
+    if (action === 'organizations') {
+      if (req.method === 'GET') {
+        return getUserOrganizations(resourceId, req, res);
+      }
+      // POST /api/admin/users/:id/organizations - Add user to organization
+      if (req.method === 'POST') {
+        return addUserToOrganization(userId, resourceId, isSuperAdmin, req, res);
+      }
+      
+      // PUT /api/admin/users/:id/organizations/:orgId - Update user role in organization
+      if (req.method === 'PUT' && parts[6]) {
+        return updateUserOrganizationRole(userId, resourceId, parts[6], isSuperAdmin, req, res);
+      }
     }
   }
 
@@ -752,6 +763,124 @@ async function setUserRoles(
   } catch (err: any) {
     console.error('Set roles error:', err);
     return error(res, 'Failed to set roles', 500, req);
+  }
+}
+
+/**
+ * Add user to an organization
+ */
+async function addUserToOrganization(
+  adminId: string, 
+  targetUserId: string, 
+  isSuperAdmin: boolean, 
+  req: VercelRequest, 
+  res: VercelResponse
+) {
+  try {
+    const { organizationId, role = 'member' } = req.body;
+
+    if (!organizationId) {
+      return error(res, 'Organization ID is required', 400, req);
+    }
+
+    const validRoles = ['admin', 'member'];
+    if (!validRoles.includes(role)) {
+      return error(res, 'Invalid role. Must be admin or member', 400, req);
+    }
+
+    // Check if organization exists
+    const orgs = await query('SELECT id, name FROM organizations WHERE id = $1', [organizationId]);
+    if (orgs.length === 0) {
+      return error(res, 'Organization not found', 404, req);
+    }
+
+    // Check if already a member
+    const existing = await query(
+      'SELECT id FROM organization_members WHERE user_id = $1 AND organization_id = $2',
+      [targetUserId, organizationId]
+    );
+
+    if (existing.length > 0) {
+      return error(res, 'User is already a member of this organization', 409, req);
+    }
+
+    // Add member
+    await query(
+      `INSERT INTO organization_members (organization_id, user_id, role, status)
+       VALUES ($1, $2, $3, 'active')`,
+      [organizationId, targetUserId, role]
+    );
+
+    await logAdminAction(
+      adminId,
+      'add_org_member',
+      'organization_member',
+      `${organizationId}:${targetUserId}`,
+      null,
+      { organizationId, userId: targetUserId, role },
+      req
+    );
+
+    return json(res, { success: true, message: 'User added to organization' }, 200, req);
+
+  } catch (err: any) {
+    console.error('Add user to org error:', err);
+    return error(res, 'Failed to add user to organization', 500, req);
+  }
+}
+
+/**
+ * Update user role in an organization
+ */
+async function updateUserOrganizationRole(
+  adminId: string,
+  targetUserId: string,
+  organizationId: string,
+  isSuperAdmin: boolean,
+  req: VercelRequest,
+  res: VercelResponse
+) {
+  try {
+    const { role } = req.body;
+    
+    const validRoles = ['admin', 'member'];
+    if (!role || !validRoles.includes(role)) {
+      return error(res, 'Invalid role. Must be admin or member', 400, req);
+    }
+
+    // Get current membership
+    const members = await query(
+        'SELECT role FROM organization_members WHERE user_id = $1 AND organization_id = $2',
+        [targetUserId, organizationId]
+    );
+
+    if (members.length === 0) {
+        return error(res, 'User is not a member of this organization', 404, req);
+    }
+    
+    const currentRole = members[0].role;
+
+    // Update role
+    await query(
+        'UPDATE organization_members SET role = $1 WHERE user_id = $2 AND organization_id = $3',
+        [role, targetUserId, organizationId]
+    );
+
+    await logAdminAction(
+        adminId,
+        'update_org_role',
+        'organization_member',
+        `${organizationId}:${targetUserId}`,
+        { role: currentRole },
+        { role },
+        req
+    );
+
+    return json(res, { success: true, message: 'Organization role updated' }, 200, req);
+
+  } catch (err: any) {
+      console.error('Update org role error:', err);
+      return error(res, 'Failed to update organization role', 500, req);
   }
 }
 
