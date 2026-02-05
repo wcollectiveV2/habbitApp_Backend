@@ -163,11 +163,10 @@ async function listProtocols(userId: string, req: VercelRequest, res: VercelResp
                 o.name as organization_name
          FROM protocols p
          LEFT JOIN protocol_organization_assignments poa ON p.id = poa.protocol_id
-         LEFT JOIN organizations o ON p.organization_id = o.id
-         WHERE (p.organization_id = $1 OR poa.organization_id = $1)
-           AND ($2::text IS NULL OR p.status = $2)
+         LEFT JOIN organizations o ON poa.organization_id = o.id
+         WHERE poa.organization_id = $1
          ORDER BY p.created_at DESC`,
-        [organization_id, status === 'all' ? null : status]
+        [organization_id]
       );
     } else {
       // Get all protocols (for admin) or user's assigned protocols
@@ -176,24 +175,19 @@ async function listProtocols(userId: string, req: VercelRequest, res: VercelResp
       
       if (isAdmin) {
         protocols = await query(
-          `SELECT p.*, o.name as organization_name
+          `SELECT p.*
            FROM protocols p
-           LEFT JOIN organizations o ON p.organization_id = o.id
-           WHERE ($1::text IS NULL OR p.status = $1)
-           ORDER BY p.created_at DESC`,
-          [status === 'all' ? null : status]
+           ORDER BY p.created_at DESC`
         );
       } else {
         // Get protocols assigned to user
         protocols = await query(
-          `SELECT p.*, o.name as organization_name
+          `SELECT p.*
            FROM protocols p
-           LEFT JOIN organizations o ON p.organization_id = o.id
            JOIN user_protocols up ON p.id = up.protocol_id
            WHERE up.user_id = $1
-             AND ($2::text IS NULL OR p.status = $2)
            ORDER BY p.created_at DESC`,
-          [userId, status === 'all' ? null : status]
+          [userId]
         );
       }
     }
