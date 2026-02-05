@@ -3,6 +3,9 @@ CREATE TABLE IF NOT EXISTS organizations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name VARCHAR(255) NOT NULL,
   logo_url TEXT,
+  type VARCHAR(50) DEFAULT 'company', -- 'company', 'product'
+  parent_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
+  description TEXT,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );

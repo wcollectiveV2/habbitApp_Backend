@@ -67,6 +67,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
 async function getOrganization(userId: string, orgId: string, req: VercelRequest, res: VercelResponse) {
   try {
+    const auth = getAuthFromRequest(req);
+    const isGlobalAdmin = (auth?.permissions || []).includes('admin') || (auth?.permissions || []).includes('super_admin');
+
+    // Get user's role in this org
+    const membership = await query(
+      `SELECT role, status FROM organization_members WHERE organization_id = $1 AND user_id = $2`,
+      [orgId, userId]
+    );
+
+    // B-SEC-01 & B-ROLE-01: Enforce organization isolation
+    if (!isGlobalAdmin && (membership.length === 0 || membership[0].status !== 'active')) {
+       return error(res, 'You do not have access to this organization', 403, req);
+    }
+
     const orgs = await query(
       `SELECT o.*, 
               (SELECT COUNT(*) FROM organization_members WHERE organization_id = o.id AND status = 'active') as member_count,
@@ -79,12 +93,6 @@ async function getOrganization(userId: string, orgId: string, req: VercelRequest
     if (orgs.length === 0) {
       return error(res, 'Organization not found', 404, req);
     }
-    
-    // Get user's role in this org
-    const membership = await query(
-      `SELECT role, status FROM organization_members WHERE organization_id = $1 AND user_id = $2`,
-      [orgId, userId]
-    );
     
     return json(res, {
       ...orgs[0],
@@ -101,6 +109,19 @@ async function getOrganization(userId: string, orgId: string, req: VercelRequest
 async function getOrganizationLeaderboard(userId: string, orgId: string, req: VercelRequest, res: VercelResponse) {
   try {
     const { limit = 20, offset = 0, period = 'all' } = req.query;
+
+    const auth = getAuthFromRequest(req);
+    const isGlobalAdmin = (auth?.permissions || []).includes('admin') || (auth?.permissions || []).includes('super_admin');
+
+    // Check membership
+    const membership = await query(
+      `SELECT role FROM organization_members WHERE organization_id = $1 AND user_id = $2 AND status = 'active'`,
+      [orgId, userId]
+    );
+
+    if (!isGlobalAdmin && membership.length === 0) {
+       return error(res, 'You do not have access to this organization leaderboard', 403, req);
+    }
     
     // Get user's privacy setting
     const userPrivacy = await query(
@@ -220,6 +241,19 @@ async function getOrganizationLeaderboard(userId: string, orgId: string, req: Ve
 
 async function getOrganizationProtocols(userId: string, orgId: string, req: VercelRequest, res: VercelResponse) {
   try {
+     const auth = getAuthFromRequest(req);
+     const isGlobalAdmin = (auth?.permissions || []).includes('admin') || (auth?.permissions || []).includes('super_admin');
+
+     // Check membership
+     const membership = await query(
+       `SELECT role FROM organization_members WHERE organization_id = $1 AND user_id = $2 AND status = 'active'`,
+       [orgId, userId]
+     );
+
+     if (!isGlobalAdmin && membership.length === 0) {
+        return error(res, 'You do not have access to this organization protocols', 403, req);
+     }
+
     const protocols = await query(
       `SELECT p.*, 
               (SELECT COUNT(*) FROM user_protocols WHERE protocol_id = p.id) as assigned_users,
@@ -248,6 +282,23 @@ async function getOrganizationProtocols(userId: string, orgId: string, req: Verc
 
 async function getOrganizationMembers(userId: string, orgId: string, req: VercelRequest, res: VercelResponse) {
   try {
+    const auth = getAuthFromRequest(req);
+    const isGlobalAdmin = (auth?.permissions || []).includes('admin') || (auth?.permissions || []).includes('super_admin');
+
+    const membership = await query(
+       `SELECT role FROM organization_members WHERE organization_id = $1 AND user_id = $2 AND status = 'active'`,
+       [orgId, userId]
+    );
+
+    if (!isGlobalAdmin && membership.length === 0) {
+       return error(res, 'You do not have access to this organization members', 403, req);
+    }
+    
+    // Also enforce that only admins/managers can view full member list if that's a requirement? 
+    // Requirement P-ORG-02 "View users by organization". Usually implies admin.
+    // But generic members might want to see colleagues?
+    // B-SEC-01 just says "Organization isolation". So basic membership check is enough.
+    
     const members = await query(
       `SELECT u.id, u.name, u.email, u.avatar_url, 
               om.role, om.status, om.created_at as joined_at
@@ -296,6 +347,13 @@ async function listOrganizations(userId: string, req: VercelRequest, res: Vercel
 
 async function createOrganization(userId: string, req: VercelRequest, res: VercelResponse) {
     try {
+        const auth = getAuthFromRequest(req);
+        const isGlobalAdmin = (auth?.permissions || []).includes('admin') || (auth?.permissions || []).includes('super_admin');
+        
+        if (!isGlobalAdmin) {
+             return error(res, 'Only global admins can create organizations', 403, req);
+        }
+
         const { name, logo_url, type = 'company', parent_id, description } = req.body;
         if (!name) return error(res, 'Name required', 400, req);
         

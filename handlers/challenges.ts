@@ -395,6 +395,14 @@ async function getChallenge(userId: string, challengeId: string, res: VercelResp
         [challengeId, userId]
       );
       
+      // Check if today is already completed
+      const todayLog = await query(
+        `SELECT completed FROM challenge_logs 
+         WHERE challenge_id = $1 AND user_id = $2 AND date = CURRENT_DATE`,
+        [challengeId, userId]
+      );
+      const todayCompleted = todayLog.length > 0 && todayLog[0].completed === true;
+      
       const isJoined = userParticipant.length > 0;
       const currentUserProgress = isJoined ? {
           id: userParticipant[0].id,
@@ -405,6 +413,7 @@ async function getChallenge(userId: string, challengeId: string, res: VercelResp
           completedDays: userParticipant[0].completed_days || 0,
           currentStreak: userParticipant[0].current_streak || 0,
           points: Math.round((userParticipant[0].progress || 0) * 10), // Simple points calculation
+          todayCompleted: todayCompleted,
       } : null;
 
       return json(res, {
@@ -674,7 +683,8 @@ async function logChallengeProgress(userId: string, challengeId: string, req: Ve
       return json(res, {
         success: true,
         progress,
-        completedDays
+        completedDays,
+        todayCompleted: completed
       }, 200, req);
     } catch (dbError: any) {
       console.error('DB error logging progress:', dbError);

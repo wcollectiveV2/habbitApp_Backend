@@ -46,7 +46,7 @@ VALUES
     ('e2e00001-0000-0000-0000-000000000001', 'testuser@e2etest.com', '$2a$10$LC1zo.Bs58DviNEbPuYYYeLDsJ9ZV9wKlnFDNHvcjp7CQPh5qKSoG', 'E2E Test User', 'Primary test user for E2E tests', 7, ARRAY['user'], NOW() - INTERVAL '30 days'),
     
     -- Admin user for admin panel tests
-    ('e2e00001-0000-0000-0000-000000000002', 'admin@e2etest.com', '$2a$10$LC1zo.Bs58DviNEbPuYYYeLDsJ9ZV9wKlnFDNHvcjp7CQPh5qKSoG', 'E2E Admin User', 'Admin user for E2E tests', 14, ARRAY['admin'], NOW() - INTERVAL '60 days'),
+    ('e2e00001-0000-0000-0000-000000000002', 'admin@e2etest.com', '$2a$10$LC1zo.Bs58DviNEbPuYYYeLDsJ9ZV9wKlnFDNHvcjp7CQPh5qKSoG', 'E2E Admin User', 'Admin user for E2E tests', 14, ARRAY['admin', 'super_admin'], NOW() - INTERVAL '60 days'),
     
     -- Manager user for organization tests
     ('e2e00001-0000-0000-0000-000000000003', 'manager@e2etest.com', '$2a$10$LC1zo.Bs58DviNEbPuYYYeLDsJ9ZV9wKlnFDNHvcjp7CQPh5qKSoG', 'E2E Manager User', 'Manager user for E2E tests', 5, ARRAY['manager'], NOW() - INTERVAL '45 days'),

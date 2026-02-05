@@ -9,7 +9,7 @@ import * as fs from 'fs';
 async function globalSetup() {
   console.log('\n🌱 Setting up E2E test database...\n');
   
-  const backendDir = path.resolve(__dirname, '../..');
+  const backendDir = process.cwd();
   const seedFile = path.join(backendDir, 'seed-e2e-tests.sql');
   
   try {

@@ -138,6 +138,19 @@ async function listProtocols(userId: string, req: VercelRequest, res: VercelResp
     let protocols;
     
     if (organization_id) {
+      // B-SEC-01: Organization isolation
+      const auth = getAuthFromRequest(req);
+      const isGlobalAdmin = (auth?.permissions || []).includes('admin');
+      
+      const membership = await query(
+         `SELECT 1 FROM organization_members WHERE organization_id = $1 AND user_id = $2 AND status = 'active'`,
+         [organization_id, userId]
+      );
+      
+      if (!isGlobalAdmin && membership.length === 0) {
+          return error(res, 'You do not have access to this organization protocols', 403, req);
+      }
+
       // Get protocols for a specific organization
       protocols = await query(
         `SELECT p.*, 
@@ -208,20 +221,26 @@ async function listProtocols(userId: string, req: VercelRequest, res: VercelResp
         }))
       };
     }));
+const auth = getAuthFromRequest(req);
+    const isGlobalAdmin = (auth?.permissions || []).includes('admin');
 
-    return json(res, protocolsWithElements, 200, req);
-  } catch (err: any) {
-    return error(res, err.message, 500, req);
-  }
-}
-
-async function createProtocol(userId: string, req: VercelRequest, res: VercelResponse) {
-  try {
-    const { name, description, organization_id, icon = 'checklist', status = 'active' } = req.body;
-    if (!name) return error(res, 'Name required', 400, req);
-
-    // Verify user has permission to create protocol for this organization
     if (organization_id) {
+      const membership = await query(
+        `SELECT role FROM organization_members 
+         WHERE organization_id = $1 AND user_id = $2 AND status = 'active'`,
+        [organization_id, userId]
+      );
+      
+      const isOrgAdmin = membership.length > 0 && ['admin', 'manager'].includes(membership[0].role);
+      
+      if (!isGlobalAdmin && !isOrgAdmin) {
+        return error(res, 'You do not have permission to create protocols for this organization', 403, req);
+      }
+    } else {
+        // Global/Public protocol creation - Only Global Admin
+        if (!isGlobalAdmin) {
+            return error(res, 'Only global admins can create global protocols', 403, req);
+      if (organization_id) {
       const membership = await query(
         `SELECT role FROM organization_members 
          WHERE organization_id = $1 AND user_id = $2 AND status = 'active'`,
@@ -578,6 +597,17 @@ async function logProtocolElement(userId: string, protocolId: string, req: Verce
       return error(res, 'Element not found in this protocol', 404, req);
     }
     
+    // B-SEC-01: Rate limiting on submissions
+    const recentLogs = await query(
+      `SELECT COUNT(*) as count FROM protocol_element_logs 
+       WHERE user_id = $1 AND logged_at > NOW() - INTERVAL '1 minute'`,
+      [userId]
+    );
+    
+    if (parseInt(recentLogs[0]?.count || '0') > 30) {
+       return error(res, 'Rate limit exceeded. Please try again later.', 429, req);
+    }
+    
     const element = elements[0];
     
     // Calculate points earned
@@ -607,6 +637,44 @@ async function logProtocolElement(userId: string, protocolId: string, req: Verce
     
     const result = await query(
       `INSERT INTO protocol_element_logs 
+
+    // B-CALC-01: Bonus for full protocol completion (50 points)
+    const requiredElements = await query(
+        `SELECT id, points FROM protocol_elements WHERE protocol_id = $1 AND is_required = true`,
+        [protocolId]
+    );
+    
+    if (requiredElements.length > 0) {
+        // Check completion status of all required elements for today
+        const completionStats = await query(
+            `SELECT COUNT(DISTINCT element_id) as count, SUM(points_earned) as total_points
+             FROM protocol_element_logs 
+             WHERE user_id = $1 
+               AND log_date = $2 
+               AND points_earned > 0 -- Assuming earning points means completion/progress
+               AND element_id IN (SELECT id FROM protocol_elements WHERE protocol_id = $3 AND is_required = true)`,
+            [userId, dateToLog, protocolId]
+        );
+        
+        const completedCount = parseInt(completionStats[0].count || '0');
+        
+        if (completedCount >= requiredElements.length) {
+             // Calculate max base points to detect if bonus already applied
+             const maxBasePoints = requiredElements.reduce((sum: number, el: any) => sum + (el.points || 10), 0);
+             const currentTotal = parseInt(completionStats[0].total_points || '0');
+             const BONUS_POINTS = 50;
+
+             // Ensure we don't double award (if current total is close to max base, it likely lacks bonus)
+             // This is heuristic but works without extra schema
+             if (currentTotal <= maxBasePoints + (BONUS_POINTS / 2)) {
+                 await query(
+                   `UPDATE protocol_element_logs SET points_earned = points_earned + $1 WHERE id = $2`,
+                   [BONUS_POINTS, result[0].id]
+                 );
+                 result[0].points_earned += BONUS_POINTS;
+             }
+        }
+    }
          (element_id, user_id, completed, value, text_value, points_earned, log_date)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (element_id, user_id, log_date) DO UPDATE SET
