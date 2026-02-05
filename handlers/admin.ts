@@ -201,15 +201,15 @@ async function getStats(req: VercelRequest, res: VercelResponse, userId: string,
     // Build Queries
     const queries = {
       users: filterByOrg 
-        ? { text: "SELECT COUNT(DISTINCT user_id) as count FROM organization_members WHERE organization_id = ANY($1)", values: [orgIds] }
+        ? { text: "SELECT COUNT(DISTINCT user_id) as count FROM organization_members WHERE organization_id::text = ANY($1)", values: [orgIds] }
         : { text: "SELECT COUNT(*) as count FROM users", values: [] },
         
       orgs: filterByOrg
-        ? { text: "SELECT COUNT(*) as count FROM organizations WHERE id = ANY($1)", values: [orgIds] }
+        ? { text: "SELECT COUNT(*) as count FROM organizations WHERE id::text = ANY($1)", values: [orgIds] }
         : { text: "SELECT COUNT(*) as count FROM organizations", values: [] },
         
       challenges: filterByOrg
-        ? { text: "SELECT COUNT(*) as count FROM challenges WHERE status = 'active' AND organization_id = ANY($1)", values: [orgIds] }
+        ? { text: "SELECT COUNT(*) as count FROM challenges WHERE status = 'active' AND organization_id::text = ANY($1)", values: [orgIds] }
         : { text: "SELECT COUNT(*) as count FROM challenges WHERE status = 'active'", values: [] },
         
       activeUsers: filterByOrg
@@ -217,7 +217,7 @@ async function getStats(req: VercelRequest, res: VercelResponse, userId: string,
             SELECT COUNT(DISTINCT cl.user_id) as count 
             FROM challenge_logs cl
             JOIN challenges c ON cl.challenge_id = c.id
-            WHERE c.organization_id = ANY($1) 
+            WHERE c.organization_id::text = ANY($1) 
             AND cl.logged_at > NOW() - INTERVAL '7 days'
           `, values: [orgIds] }
         : { text: `
@@ -249,7 +249,7 @@ async function getStats(req: VercelRequest, res: VercelResponse, userId: string,
           FROM challenge_logs cl
           JOIN challenges c ON cl.challenge_id = c.id
           WHERE cl.logged_at > NOW() - INTERVAL '7 days'
-          AND c.organization_id = ANY($1)
+          AND c.organization_id::text = ANY($1)
           GROUP BY to_char(cl.logged_at, 'Dy'), date(cl.logged_at)
           ORDER BY date(cl.logged_at)
         `, values: [orgIds] }
@@ -272,7 +272,7 @@ async function getStats(req: VercelRequest, res: VercelResponse, userId: string,
           SELECT c.title as name, COUNT(cp.user_id)::int as users, COALESCE(AVG(cp.progress), 0)::int as progress
           FROM challenges c
           LEFT JOIN challenge_participants cp ON c.id = cp.challenge_id
-          WHERE c.status = 'active' AND c.organization_id = ANY($1)
+          WHERE c.status = 'active' AND c.organization_id::text = ANY($1)
           GROUP BY c.id, c.title
           ORDER BY users DESC
           LIMIT 4
@@ -298,14 +298,14 @@ async function getStats(req: VercelRequest, res: VercelResponse, userId: string,
 
     // Get organization breakdown by type
     const orgTypeQuery = filterByOrg
-        ? { text: "SELECT type, COUNT(*) as count FROM organizations WHERE id = ANY($1) GROUP BY type", values: [orgIds] }
+        ? { text: "SELECT type, COUNT(*) as count FROM organizations WHERE id::text = ANY($1) GROUP BY type", values: [orgIds] }
         : { text: "SELECT type, COUNT(*) as count FROM organizations GROUP BY type", values: [] };
         
     const orgTypeBreakdown = await query(orgTypeQuery.text, orgTypeQuery.values);
 
     // Get user role distribution
     const roleQuery = filterByOrg
-        ? { text: "SELECT role, COUNT(*) as count FROM organization_members WHERE organization_id = ANY($1) GROUP BY role", values: [orgIds] }
+        ? { text: "SELECT role, COUNT(*) as count FROM organization_members WHERE organization_id::text = ANY($1) GROUP BY role", values: [orgIds] }
         : { text: "SELECT unnest(roles) as role, COUNT(*) as count FROM users GROUP BY role", values: [] };
 
     const roleDistribution = await query(roleQuery.text, roleQuery.values);
