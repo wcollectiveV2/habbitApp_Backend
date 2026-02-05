@@ -345,16 +345,38 @@ async function listOrganizations(userId: string, req: VercelRequest, res: Vercel
         
         let orgs;
         if (isAdmin) {
-             orgs = await query('SELECT * FROM organizations ORDER BY created_at DESC');
+             orgs = await query(`
+                SELECT 
+                    o.*,
+                    COUNT(DISTINCT om.user_id) as member_count
+                FROM organizations o
+                LEFT JOIN organization_members om ON o.id = om.organization_id AND om.status = 'active'
+                GROUP BY o.id
+                ORDER BY o.created_at DESC
+             `);
         } else {
              orgs = await query(
-                `SELECT o.*, om.role FROM organizations o 
-                 JOIN organization_members om ON o.id = om.organization_id 
-                 WHERE om.user_id = $1 AND om.status = 'active'`,
+                `SELECT 
+                    o.*, 
+                    m_own.role,
+                    COUNT(DISTINCT om_all.user_id) as member_count
+                 FROM organizations o 
+                 JOIN organization_members m_own ON o.id = m_own.organization_id 
+                 LEFT JOIN organization_members om_all ON o.id = om_all.organization_id AND om_all.status = 'active'
+                 WHERE m_own.user_id = $1 AND m_own.status = 'active'
+                 GROUP BY o.id, m_own.role
+                 ORDER BY o.created_at DESC`,
                 [userId]
             );
         }
-        return json(res, orgs, 200, req);
+        
+        // Ensure member_count is returned as a number (although frontend might handle string)
+        const orgsWithNumbers = orgs.map((org: any) => ({
+            ...org,
+            member_count: parseInt(org.member_count || '0')
+        }));
+        
+        return json(res, orgsWithNumbers, 200, req);
     } catch (e: any) {
         return error(res, 'Failed to fetch organizations', 500, req);
     }

@@ -432,7 +432,10 @@ async function getOrganizationsWithHierarchy(req: VercelRequest, res: VercelResp
     const orgMap = new Map();
     const rootOrgs: any[] = [];
 
+    // Parse counts as integers and build map
     orgs.forEach((org: any) => {
+      org.member_count = parseInt(org.member_count || '0');
+      org.challenge_count = parseInt(org.challenge_count || '0');
       orgMap.set(org.id, { ...org, children: [] });
     });
 
