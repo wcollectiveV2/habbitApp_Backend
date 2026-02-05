@@ -30,3 +30,8 @@ npm-debug.log*
 coverage/
 .vercel
 .env*.local
+
+# Testing results
+playwright-report/
+test-results/
+junit.xml
