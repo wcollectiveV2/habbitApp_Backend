@@ -799,11 +799,12 @@ async function getAdminNotifications(req: VercelRequest, res: VercelResponse, us
       SELECT 
         c.title as challenge_title,
         COUNT(DISTINCT cp.user_id) as completion_count,
-        MAX(cp.updated_at) as last_completion
+        MAX(cl.logged_at) as last_completion
       FROM challenges c
       JOIN challenge_participants cp ON c.id = cp.challenge_id
+      JOIN challenge_logs cl ON cp.challenge_id = cl.challenge_id AND cp.user_id = cl.user_id
       WHERE cp.progress >= 100 
-        AND cp.updated_at > NOW() - INTERVAL '7 days'
+        AND cl.logged_at > NOW() - INTERVAL '7 days'
       GROUP BY c.id, c.title
       ORDER BY last_completion DESC
       LIMIT 5
