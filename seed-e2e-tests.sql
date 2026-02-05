@@ -43,23 +43,23 @@ DELETE FROM challenges WHERE title LIKE 'E2E Test%';
 INSERT INTO users (id, email, password_hash, name, bio, current_streak, roles, created_at)
 VALUES 
     -- Primary test user for most tests
-    ('e2e00001-0000-0000-0000-000000000001', 'testuser@e2etest.com', '$2a$10$bbNxqIwv1Wc5.AL0xm4m7.C945lALJDd2Cj6NtHGLFK5O6ZKPD4Aa', 'E2E Test User', 'Primary test user for E2E tests', 7, ARRAY['user'], NOW() - INTERVAL '30 days'),
+    ('e2e00001-0000-0000-0000-000000000001', 'testuser@e2etest.com', '$2a$10$LC1zo.Bs58DviNEbPuYYYeLDsJ9ZV9wKlnFDNHvcjp7CQPh5qKSoG', 'E2E Test User', 'Primary test user for E2E tests', 7, ARRAY['user'], NOW() - INTERVAL '30 days'),
     
     -- Admin user for admin panel tests
-    ('e2e00001-0000-0000-0000-000000000002', 'admin@e2etest.com', '$2a$10$bbNxqIwv1Wc5.AL0xm4m7.C945lALJDd2Cj6NtHGLFK5O6ZKPD4Aa', 'E2E Admin User', 'Admin user for E2E tests', 14, ARRAY['admin'], NOW() - INTERVAL '60 days'),
+    ('e2e00001-0000-0000-0000-000000000002', 'admin@e2etest.com', '$2a$10$LC1zo.Bs58DviNEbPuYYYeLDsJ9ZV9wKlnFDNHvcjp7CQPh5qKSoG', 'E2E Admin User', 'Admin user for E2E tests', 14, ARRAY['admin'], NOW() - INTERVAL '60 days'),
     
     -- Manager user for organization tests
-    ('e2e00001-0000-0000-0000-000000000003', 'manager@e2etest.com', '$2a$10$bbNxqIwv1Wc5.AL0xm4m7.C945lALJDd2Cj6NtHGLFK5O6ZKPD4Aa', 'E2E Manager User', 'Manager user for E2E tests', 5, ARRAY['manager'], NOW() - INTERVAL '45 days'),
+    ('e2e00001-0000-0000-0000-000000000003', 'manager@e2etest.com', '$2a$10$LC1zo.Bs58DviNEbPuYYYeLDsJ9ZV9wKlnFDNHvcjp7CQPh5qKSoG', 'E2E Manager User', 'Manager user for E2E tests', 5, ARRAY['manager'], NOW() - INTERVAL '45 days'),
     
     -- Secondary user for social tests (following, leaderboard)
-    ('e2e00001-0000-0000-0000-000000000004', 'friend1@e2etest.com', '$2a$10$bbNxqIwv1Wc5.AL0xm4m7.C945lALJDd2Cj6NtHGLFK5O6ZKPD4Aa', 'Jane Smith', 'First friend for social tests', 21, ARRAY['user'], NOW() - INTERVAL '90 days'),
+    ('e2e00001-0000-0000-0000-000000000004', 'friend1@e2etest.com', '$2a$10$LC1zo.Bs58DviNEbPuYYYeLDsJ9ZV9wKlnFDNHvcjp7CQPh5qKSoG', 'Jane Smith', 'First friend for social tests', 21, ARRAY['user'], NOW() - INTERVAL '90 days'),
     
-    ('e2e00001-0000-0000-0000-000000000005', 'friend2@e2etest.com', '$2a$10$bbNxqIwv1Wc5.AL0xm4m7.C945lALJDd2Cj6NtHGLFK5O6ZKPD4Aa', 'Bob Johnson', 'Second friend for social tests', 10, ARRAY['user'], NOW() - INTERVAL '60 days'),
+    ('e2e00001-0000-0000-0000-000000000005', 'friend2@e2etest.com', '$2a$10$LC1zo.Bs58DviNEbPuYYYeLDsJ9ZV9wKlnFDNHvcjp7CQPh5qKSoG', 'Bob Johnson', 'Second friend for social tests', 10, ARRAY['user'], NOW() - INTERVAL '60 days'),
     
-    ('e2e00001-0000-0000-0000-000000000006', 'friend3@e2etest.com', '$2a$10$bbNxqIwv1Wc5.AL0xm4m7.C945lALJDd2Cj6NtHGLFK5O6ZKPD4Aa', 'Alice Williams', 'Third friend for social tests', 15, ARRAY['user'], NOW() - INTERVAL '45 days'),
+    ('e2e00001-0000-0000-0000-000000000006', 'friend3@e2etest.com', '$2a$10$LC1zo.Bs58DviNEbPuYYYeLDsJ9ZV9wKlnFDNHvcjp7CQPh5qKSoG', 'Alice Williams', 'Third friend for social tests', 15, ARRAY['user'], NOW() - INTERVAL '45 days'),
     
     -- New user (no data) for onboarding tests
-    ('e2e00001-0000-0000-0000-000000000007', 'newuser@e2etest.com', '$2a$10$bbNxqIwv1Wc5.AL0xm4m7.C945lALJDd2Cj6NtHGLFK5O6ZKPD4Aa', 'New User', 'Fresh user for onboarding tests', 0, ARRAY['user'], NOW())
+    ('e2e00001-0000-0000-0000-000000000007', 'newuser@e2etest.com', '$2a$10$LC1zo.Bs58DviNEbPuYYYeLDsJ9ZV9wKlnFDNHvcjp7CQPh5qKSoG', 'New User', 'Fresh user for onboarding tests', 0, ARRAY['user'], NOW())
 ON CONFLICT (id) DO UPDATE SET 
     email = EXCLUDED.email,
     password_hash = EXCLUDED.password_hash,
@@ -251,22 +251,22 @@ ON CONFLICT DO NOTHING;
 INSERT INTO users (id, email, password_hash, name, bio, current_streak, roles, created_at)
 VALUES 
     -- Super Admin (full system access)
-    ('e2e00001-0000-0000-0000-000000000010', 'superadmin@e2etest.com', '$2a$10$bbNxqIwv1Wc5.AL0xm4m7.C945lALJDd2Cj6NtHGLFK5O6ZKPD4Aa', 'Super Admin', 'System administrator', 30, ARRAY['user', 'admin', 'super_admin'], NOW() - INTERVAL '180 days'),
+    ('e2e00001-0000-0000-0000-000000000010', 'superadmin@e2etest.com', '$2a$10$LC1zo.Bs58DviNEbPuYYYeLDsJ9ZV9wKlnFDNHvcjp7CQPh5qKSoG', 'Super Admin', 'System administrator', 30, ARRAY['user', 'admin', 'super_admin'], NOW() - INTERVAL '180 days'),
     
     -- Product Admin (manages product organization)
-    ('e2e00001-0000-0000-0000-000000000011', 'productadmin@e2etest.com', '$2a$10$bbNxqIwv1Wc5.AL0xm4m7.C945lALJDd2Cj6NtHGLFK5O6ZKPD4Aa', 'Product Admin', 'Product administrator', 25, ARRAY['user', 'admin', 'protocol_manager'], NOW() - INTERVAL '120 days'),
+    ('e2e00001-0000-0000-0000-000000000011', 'productadmin@e2etest.com', '$2a$10$LC1zo.Bs58DviNEbPuYYYeLDsJ9ZV9wKlnFDNHvcjp7CQPh5qKSoG', 'Product Admin', 'Product administrator', 25, ARRAY['user', 'admin', 'protocol_manager'], NOW() - INTERVAL '120 days'),
     
     -- Company Owner
-    ('e2e00001-0000-0000-0000-000000000012', 'companyowner@e2etest.com', '$2a$10$bbNxqIwv1Wc5.AL0xm4m7.C945lALJDd2Cj6NtHGLFK5O6ZKPD4Aa', 'Company Owner', 'Company organization owner', 20, ARRAY['user', 'admin'], NOW() - INTERVAL '100 days'),
+    ('e2e00001-0000-0000-0000-000000000012', 'companyowner@e2etest.com', '$2a$10$LC1zo.Bs58DviNEbPuYYYeLDsJ9ZV9wKlnFDNHvcjp7CQPh5qKSoG', 'Company Owner', 'Company organization owner', 20, ARRAY['user', 'admin'], NOW() - INTERVAL '100 days'),
     
     -- Company Admin
-    ('e2e00001-0000-0000-0000-000000000013', 'companyadmin@e2etest.com', '$2a$10$bbNxqIwv1Wc5.AL0xm4m7.C945lALJDd2Cj6NtHGLFK5O6ZKPD4Aa', 'Company Admin', 'Company administrator', 18, ARRAY['user', 'manager'], NOW() - INTERVAL '90 days'),
+    ('e2e00001-0000-0000-0000-000000000013', 'companyadmin@e2etest.com', '$2a$10$LC1zo.Bs58DviNEbPuYYYeLDsJ9ZV9wKlnFDNHvcjp7CQPh5qKSoG', 'Company Admin', 'Company administrator', 18, ARRAY['user', 'manager'], NOW() - INTERVAL '90 days'),
     
     -- Anonymous user (for privacy tests)
-    ('e2e00001-0000-0000-0000-000000000014', 'anonuser@e2etest.com', '$2a$10$bbNxqIwv1Wc5.AL0xm4m7.C945lALJDd2Cj6NtHGLFK5O6ZKPD4Aa', 'Anonymous User', 'Privacy test user - anonymous', 12, ARRAY['user'], NOW() - INTERVAL '60 days'),
+    ('e2e00001-0000-0000-0000-000000000014', 'anonuser@e2etest.com', '$2a$10$LC1zo.Bs58DviNEbPuYYYeLDsJ9ZV9wKlnFDNHvcjp7CQPh5qKSoG', 'Anonymous User', 'Privacy test user - anonymous', 12, ARRAY['user'], NOW() - INTERVAL '60 days'),
     
     -- Hidden user (for privacy tests)
-    ('e2e00001-0000-0000-0000-000000000015', 'hiddenuser@e2etest.com', '$2a$10$bbNxqIwv1Wc5.AL0xm4m7.C945lALJDd2Cj6NtHGLFK5O6ZKPD4Aa', 'Hidden User', 'Privacy test user - hidden', 8, ARRAY['user'], NOW() - INTERVAL '45 days')
+    ('e2e00001-0000-0000-0000-000000000015', 'hiddenuser@e2etest.com', '$2a$10$LC1zo.Bs58DviNEbPuYYYeLDsJ9ZV9wKlnFDNHvcjp7CQPh5qKSoG', 'Hidden User', 'Privacy test user - hidden', 8, ARRAY['user'], NOW() - INTERVAL '45 days')
 ON CONFLICT (id) DO UPDATE SET 
     email = EXCLUDED.email,
     name = EXCLUDED.name,
