@@ -802,6 +802,81 @@ async function logProtocolElement(userId: string, protocolId: string, req: Verce
 async function getProtocolLeaderboard(userId: string, protocolId: string, req: VercelRequest, res: VercelResponse) {
   try {
     const { limit = 20, offset = 0, period = 'all' } = req.query;
+
+    if (!protocolId || protocolId === 'undefined' || protocolId === 'null') {
+       return error(res, 'Invalid protocol ID', 400, req);
+    }
+    
+    // Handle Challenge IDs (Negative)
+    const pId = parseInt(protocolId);
+    if (!isNaN(pId) && pId < 0) {
+        const challengeId = -pId;
+        
+        // Fetch Challenge Leaderboard with Protocol Format
+        const leaderboard = await query(
+            `SELECT 
+                u.id as user_id,
+                CASE 
+                  WHEN u.privacy_challenge_leaderboard = 'anonymous' AND u.id != $2 THEN 'Anonymous User'
+                  ELSE u.name 
+                END as name,
+                CASE 
+                  WHEN u.privacy_challenge_leaderboard = 'anonymous' AND u.id != $2 THEN NULL 
+                  ELSE u.avatar_url 
+                END as avatar_url,
+                cp.progress as total_points, -- Mapping progress to points
+                cp.completed_days as active_days,
+                u.privacy_challenge_leaderboard as privacy,
+                ROW_NUMBER() OVER (ORDER BY cp.progress DESC, cp.completed_days DESC) as rank
+             FROM challenge_participants cp
+             JOIN users u ON cp.user_id = u.id
+             WHERE cp.challenge_id = $1
+               AND (u.privacy_challenge_leaderboard IS DISTINCT FROM 'hidden' OR u.id = $2)
+             ORDER BY rank ASC
+             LIMIT $3 OFFSET $4`,
+            [challengeId, userId, limit, offset]
+        );
+
+        // Get user's privacy setting
+        const userPrivacy = await query(
+            `SELECT privacy_challenge_leaderboard FROM users WHERE id = $1`,
+            [userId]
+        );
+        const myPrivacy = userPrivacy[0]?.privacy_challenge_leaderboard || 'visible';
+
+        const transformedLeaderboard = leaderboard.map((entry: any) => ({
+            rank: parseInt(entry.rank),
+            userId: entry.user_id,
+            name: entry.name,
+            avatarUrl: entry.avatar_url,
+            totalPoints: entry.total_points,
+            activeDays: entry.active_days,
+            isCurrentUser: entry.user_id === userId
+        }));
+
+        let myRank = null;
+        if (myPrivacy === 'hidden') {
+             // Calculate my rank specifically if hidden
+             const allParticipants = await query(
+                `SELECT user_id, progress, ROW_NUMBER() OVER (ORDER BY progress DESC, completed_days DESC) as rank 
+                 FROM challenge_participants WHERE challenge_id = $1`,
+                 [challengeId]
+             );
+             const me = allParticipants.find((p:any) => p.user_id === userId);
+             if (me) {
+                 myRank = {
+                     rank: me.rank,
+                     totalPoints: me.progress
+                 };
+             }
+        }
+
+        return json(res, {
+            leaderboard: transformedLeaderboard,
+            myRank,
+            myPrivacy
+        }, 200, req);
+    }
     
     // Get user's privacy setting
     const userPrivacy = await query(
