@@ -460,6 +460,15 @@ async function getProtocol(id: string, res: VercelResponse, req: VercelRequest) 
        WHERE poa.protocol_id = $1`,
       [id]
     );
+
+    // Get assigned users
+    const assignedUsers = await query(
+      `SELECT u.id, u.name, u.email, up.assigned_at
+       FROM user_protocols up
+       JOIN users u ON up.user_id = u.id
+       WHERE up.protocol_id = $1`,
+      [id]
+    );
     
     return json(res, {
       ...protocol,
@@ -468,6 +477,7 @@ async function getProtocol(id: string, res: VercelResponse, req: VercelRequest) 
       organizationName: protocol.organization_name,
       createdAt: protocol.created_at,
       assignedOrganizations: assignedOrgs,
+      assignedUsers,
       elements: elements.map((e: any) => ({
         id: e.id,
         title: e.title,
