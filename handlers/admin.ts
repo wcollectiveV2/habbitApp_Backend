@@ -376,11 +376,11 @@ async function getAuditLogs(req: VercelRequest, res: VercelResponse, userId: str
         conditions.push(`(
           a.admin_id = $${userParamIdx} 
           OR 
-          (a.target_type = 'organization' AND a.target_id = ANY($${orgsParamIdx}))
+          (a.target_type = 'organization' AND a.target_id::text = ANY($${orgsParamIdx}))
           OR
           (a.target_type = 'user' AND EXISTS (
             SELECT 1 FROM organization_members om 
-            WHERE om.user_id::text = a.target_id AND om.organization_id = ANY($${orgsParamIdx})
+            WHERE om.user_id = a.target_id AND om.organization_id::text = ANY($${orgsParamIdx})
           ))
         )`);
         params.push(orgIds);

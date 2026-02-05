@@ -61,7 +61,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'PATCH' && id && path.includes('/elements')) {
     const elementId = pathParts[pathParts.indexOf('elements') + 1];
     if (elementId) {
-      return updateProtocolElement(elementId, req, res);
+      return updateProtocolElement(id, elementId, req, res);
     }
   }
   
@@ -69,7 +69,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'DELETE' && id && path.includes('/elements')) {
     const elementId = pathParts[pathParts.indexOf('elements') + 1];
     if (elementId) {
-      return deleteProtocolElement(elementId, req, res);
+      return deleteProtocolElement(id, elementId, req, res);
     }
   }
 
@@ -565,8 +565,58 @@ async function getProtocol(idOrString: string, res: VercelResponse, req: VercelR
   }
 }
 
+async function addChallengeTask(challengeId: number, req: VercelRequest, res: VercelResponse) {
+  try {
+    const { 
+      title, 
+      description,
+      type = 'check', 
+      unit, 
+      goal, 
+    } = req.body;
+    
+    if (!title) return error(res, 'Title is required', 400, req);
+    
+    // Map type: 'check' -> 'boolean', 'number' -> 'numeric'
+    let challengeType = type;
+    if (type === 'check') challengeType = 'boolean';
+    if (type === 'number') challengeType = 'numeric';
+    
+    const result = await query(
+      `INSERT INTO challenge_tasks 
+         (challenge_id, title, description, type, target_value, unit) 
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [challengeId, title, description, challengeType, goal, unit]
+    );
+    
+    const t = result[0];
+    return json(res, {
+      id: t.id,
+      title: t.title,
+      description: t.description,
+      type: t.type === 'boolean' ? 'check' : (t.type === 'numeric' ? 'number' : t.type),
+      goal: t.target_value,
+      unit: t.unit,
+      frequency: 'daily',
+      min_value: null,
+      max_value: null,
+      points: 10,
+      displayOrder: t.id,
+      isRequired: true
+    }, 201, req);
+  } catch (err: any) {
+    return error(res, err.message, 500, req);
+  }
+}
+
 async function addProtocolElement(protocolId: string, req: VercelRequest, res: VercelResponse) {
   try {
+    // Handle negative IDs for challenges
+    const pId = parseInt(protocolId);
+    if (!isNaN(pId) && pId < 0) {
+      return addChallengeTask(Math.abs(pId), req, res);
+    }
+
     const { 
       title, 
       description,
@@ -616,8 +666,66 @@ async function addProtocolElement(protocolId: string, req: VercelRequest, res: V
   }
 }
 
-async function updateProtocolElement(elementId: string, req: VercelRequest, res: VercelResponse) {
+async function updateChallengeTask(taskId: number, req: VercelRequest, res: VercelResponse) {
   try {
+    const { title, description, type, unit, goal } = req.body;
+    
+    // Map type if needed
+    let challengeType = type;
+    if (type === 'check') challengeType = 'boolean';
+    if (type === 'number') challengeType = 'numeric';
+
+    const result = await query(
+      `UPDATE challenge_tasks SET 
+         title = COALESCE($1, title),
+         description = COALESCE($2, description),
+         type = COALESCE($3, type),
+         unit = COALESCE($4, unit),
+         target_value = COALESCE($5, target_value)
+       WHERE id = $6 RETURNING *`,
+      [title, description, challengeType, unit, goal, taskId]
+    );
+
+    if (result.length === 0) return error(res, 'Task not found', 404, req);
+
+    const t = result[0];
+    return json(res, {
+      id: t.id,
+      title: t.title,
+      description: t.description,
+      type: t.type === 'boolean' ? 'check' : (t.type === 'numeric' ? 'number' : t.type),
+      goal: t.target_value,
+      unit: t.unit,
+      frequency: 'daily',
+      min_value: null,
+      max_value: null,
+      points: 10,
+      displayOrder: t.id,
+      isRequired: true
+    }, 200, req);
+  } catch (err: any) {
+    return error(res, err.message, 500, req);
+  }
+}
+
+async function deleteChallengeTask(taskId: number, req: VercelRequest, res: VercelResponse) {
+  try {
+     const result = await query(`DELETE FROM challenge_tasks WHERE id = $1 RETURNING id`, [taskId]);
+     if (result.length === 0) return error(res, 'Task not found', 404, req);
+     
+     return json(res, { message: 'Task deleted' }, 200, req);
+  } catch (err: any) {
+    return error(res, err.message, 500, req);
+  }
+}
+
+async function updateProtocolElement(protocolId: string, elementId: string, req: VercelRequest, res: VercelResponse) {
+  try {
+    const pId = parseInt(protocolId);
+    if (!isNaN(pId) && pId < 0) {
+      return updateChallengeTask(parseInt(elementId), req, res);
+    }
+
     const { title, description, type, unit, goal, min_value, max_value, points, frequency, display_order, is_required } = req.body;
     
     const result = await query(
@@ -659,8 +767,13 @@ async function updateProtocolElement(elementId: string, req: VercelRequest, res:
   }
 }
 
-async function deleteProtocolElement(elementId: string, req: VercelRequest, res: VercelResponse) {
+async function deleteProtocolElement(protocolId: string, elementId: string, req: VercelRequest, res: VercelResponse) {
   try {
+    const pId = parseInt(protocolId);
+    if (!isNaN(pId) && pId < 0) {
+      return deleteChallengeTask(parseInt(elementId), req, res);
+    }
+
     const result = await query(`DELETE FROM protocol_elements WHERE id = $1 RETURNING id`, [elementId]);
     if (result.length === 0) return error(res, 'Element not found', 404, req);
     
