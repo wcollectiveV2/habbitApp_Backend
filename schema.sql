@@ -42,7 +42,9 @@ CREATE TABLE IF NOT EXISTS habit_logs (
   notes TEXT
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_habit_logs_unique_daily ON habit_logs (habit_id, user_id, (completed_at::date));
+-- Removed unique index to allow multiple completions per day (for counters)
+-- CREATE UNIQUE INDEX IF NOT EXISTS idx_habit_logs_unique_daily ON habit_logs (habit_id, user_id, (completed_at::date));
+CREATE INDEX IF NOT EXISTS idx_habit_logs_daily ON habit_logs (habit_id, user_id, (completed_at::date));
 
 -- Tasks table
 CREATE TABLE IF NOT EXISTS tasks (

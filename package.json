@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "vercel dev",
+    "dev:local": "tsx server.ts",
     "deploy": "vercel --prod",
     "seed": "node scripts/seed.js",
     "test:e2e": "playwright test"

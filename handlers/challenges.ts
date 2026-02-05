@@ -99,8 +99,11 @@ async function getActiveChallenges(userId: string, res: VercelResponse, req: Ver
         targetDays: c.target_days,
         participantCount: parseInt(c.participant_count || '0'),
         participants: [], // Placeholder as DB doesn't return list yet
-        progress: c.progress,
-        timeLeft: `${c.days_remaining} days left`,
+        progress: c.progress || 0,
+        completedDays: c.completed_days || 0,
+        currentStreak: c.current_streak || 0,
+        daysRemaining: c.days_remaining || 0,
+        timeLeft: `${c.days_remaining || 0} days left`,
         joinedText: `Joined`, 
         theme: 'primary',
         extraParticipants: Math.max(0, parseInt(c.participant_count || '0') - 3)
@@ -353,7 +356,7 @@ async function getChallenge(userId: string, challengeId: string, res: VercelResp
         [challengeId, userId]
       );
 
-      const participants = await query(
+      const participantsRaw = await query(
         `SELECT cp.*, 
           CASE 
             WHEN u.privacy_challenge_leaderboard = 'anonymous' AND u.id != $2 THEN 'Anonymous User'
@@ -373,6 +376,20 @@ async function getChallenge(userId: string, challengeId: string, res: VercelResp
         [challengeId, userId]
       );
 
+      // Map participants to camelCase for frontend
+      const participants = participantsRaw.map((p: any) => ({
+        id: p.id,
+        challengeId: p.challenge_id,
+        userId: p.user_id,
+        userName: p.user_name,
+        userAvatar: p.user_avatar,
+        joinedAt: p.joined_at,
+        progress: p.progress || 0,
+        completedDays: p.completed_days || 0,
+        currentStreak: p.current_streak || 0,
+        points: p.user_points || Math.round((p.progress || 0) * 10)
+      }));
+
       const userParticipant = await query(
         `SELECT * FROM challenge_participants WHERE challenge_id = $1 AND user_id = $2`,
         [challengeId, userId]
@@ -380,7 +397,13 @@ async function getChallenge(userId: string, challengeId: string, res: VercelResp
       
       const isJoined = userParticipant.length > 0;
       const currentUserProgress = isJoined ? {
-          ...userParticipant[0],
+          id: userParticipant[0].id,
+          challengeId: userParticipant[0].challenge_id,
+          userId: userParticipant[0].user_id,
+          joinedAt: userParticipant[0].joined_at,
+          progress: userParticipant[0].progress || 0,
+          completedDays: userParticipant[0].completed_days || 0,
+          currentStreak: userParticipant[0].current_streak || 0,
           points: Math.round((userParticipant[0].progress || 0) * 10), // Simple points calculation
       } : null;
 

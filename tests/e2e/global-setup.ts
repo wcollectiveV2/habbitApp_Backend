@@ -4,17 +4,12 @@
 
 import { execSync } from 'child_process';
 import * as path from 'path';
-import { fileURLToPath } from 'url';
-import { createRequire } from 'module';
-
-const require = createRequire(import.meta.url);
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import * as fs from 'fs';
 
 async function globalSetup() {
   console.log('\n🌱 Setting up E2E test database...\n');
   
-  const backendDir = path.resolve(__dirname, '../../../vercel-backend');
+  const backendDir = path.resolve(__dirname, '../..');
   const seedFile = path.join(backendDir, 'seed-e2e-tests.sql');
   
   try {
@@ -24,7 +19,6 @@ async function globalSetup() {
       
       // Try to load from backend .env
       const envPath = path.join(backendDir, '.env');
-      const fs = require('fs');
       
       if (fs.existsSync(envPath)) {
         const envContent = fs.readFileSync(envPath, 'utf8');

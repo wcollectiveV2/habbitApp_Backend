@@ -45,11 +45,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return deleteHabit(userId, habitId as string, res, req);
   }
 
-  // POST /api/habits/:id/complete - Mark habit complete
-  if (req.method === 'POST' && path.includes('/complete')) {
+  // Handle /complete endpoints (POST and DELETE)
+  if (path.includes('/complete')) {
     const id = path.split('/habits/')[1]?.split('/')[0];
     if (id) {
-      return completeHabit(userId, id, res, req);
+      if (req.method === 'POST') {
+        return completeHabit(userId, id, res, req);
+      }
+      if (req.method === 'DELETE') {
+        return uncompleteHabit(userId, id, res, req);
+      }
     }
   }
 
@@ -58,9 +63,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
 async function listHabits(userId: string, res: VercelResponse, req: VercelRequest) {
   try {
+    // Get habits with TODAY'S completion count
     const habits = await query(
       `SELECT h.*, 
-        (SELECT COUNT(*) FROM habit_logs hl WHERE hl.habit_id = h.id AND hl.completed_at::date = CURRENT_DATE) > 0 as completed_today
+        (SELECT COUNT(*)::int FROM habit_logs hl WHERE hl.habit_id = h.id AND hl.completed_at::date = CURRENT_DATE) as completions_today
       FROM habits h 
       WHERE h.user_id = $1 
       ORDER BY h.created_at DESC`,
@@ -77,7 +83,8 @@ async function listHabits(userId: string, res: VercelResponse, req: VercelReques
       isActive: h.is_active,
       createdAt: h.created_at,
       updatedAt: h.updated_at,
-      completedToday: h.completed_today
+      completedToday: h.completions_today >= h.target_count,
+      completionsToday: h.completions_today
     }));
 
     return json(res, { habits: formattedHabits }, 200, req);
@@ -216,17 +223,58 @@ async function completeHabit(userId: string, habitId: string, res: VercelRespons
       return error(res, 'Habit not found', 404, req);
     }
 
-    // Log completion
+    // Insert log (now allows multiple per day)
     const logs = await query(
       `INSERT INTO habit_logs (habit_id, user_id, completed_at)
        VALUES ($1, $2, NOW())
-       ON CONFLICT (habit_id, user_id, completed_at::date) DO NOTHING
        RETURNING *`,
       [habitId, userId]
     );
 
-    return json(res, { success: true, log: logs[0] || null }, 200, req);
+    // Get updated status
+    const countResult = await query(
+      `SELECT COUNT(*)::int as count FROM habit_logs 
+       WHERE habit_id = $1 AND user_id = $2 AND completed_at::date = CURRENT_DATE`,
+      [habitId, userId]
+    );
+    const completionsToday = countResult[0]?.count || 0;
+
+    return json(res, { success: true, log: logs[0] || null, completionsToday }, 200, req);
   } catch (err: any) {
     return error(res, err.message || 'Failed to complete habit', 500, req);
+  }
+}
+
+async function uncompleteHabit(userId: string, habitId: string, res: VercelResponse, req: VercelRequest) {
+  try {
+    // Verify habit belongs to user
+    const habits = await query('SELECT id FROM habits WHERE id = $1 AND user_id = $2', [habitId, userId]);
+    if (habits.length === 0) {
+      return error(res, 'Habit not found', 404, req);
+    }
+
+    // Delete ONLY THE MOST RECENT log for today
+    await query(
+      `DELETE FROM habit_logs 
+       WHERE id IN (
+         SELECT id FROM habit_logs 
+         WHERE habit_id = $1 AND user_id = $2 AND completed_at::date = CURRENT_DATE
+         ORDER BY completed_at DESC
+         LIMIT 1
+       )`,
+      [habitId, userId]
+    );
+
+    // Get updated status
+    const countResult = await query(
+      `SELECT COUNT(*)::int as count FROM habit_logs 
+       WHERE habit_id = $1 AND user_id = $2 AND completed_at::date = CURRENT_DATE`,
+      [habitId, userId]
+    );
+    const completionsToday = countResult[0]?.count || 0;
+
+    return json(res, { success: true, completionsToday }, 200, req);
+  } catch (err: any) {
+    return error(res, err.message || 'Failed to uncomplete habit', 500, req);
   }
 }

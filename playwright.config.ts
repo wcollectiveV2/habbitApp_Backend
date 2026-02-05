@@ -42,8 +42,8 @@ export default defineConfig({
   
   // Don't start webServer when running with Docker (services already running)
   webServer: process.env.DOCKER ? undefined : {
-    command: 'npm run dev',
-    url: 'http://localhost:3001',
+    command: 'npm run dev:local',
+    url: 'http://localhost:3001/health',
     reuseExistingServer: true,
     timeout: 120 * 1000,
   },
