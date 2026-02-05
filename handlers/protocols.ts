@@ -140,20 +140,23 @@ async function listProtocols(userId: string, req: VercelRequest, res: VercelResp
   try {
     const { organization_id, status = 'active' } = req.query;
     
-    let protocols;
+    let protocols: any[] = [];
+    let challenges: any[] = [];
     
+    const auth = getAuthFromRequest(req);
+    const isAdmin = (auth?.permissions || []).includes('admin');
+
     if (organization_id) {
       // B-SEC-01: Organization isolation
-      const auth = getAuthFromRequest(req);
-      const isGlobalAdmin = (auth?.permissions || []).includes('admin');
-      
-      const membership = await query(
-         `SELECT 1 FROM organization_members WHERE organization_id = $1 AND user_id = $2 AND status = 'active'`,
-         [organization_id, userId]
-      );
-      
-      if (!isGlobalAdmin && membership.length === 0) {
-          return error(res, 'You do not have access to this organization protocols', 403, req);
+      if (!isAdmin) {
+          const membership = await query(
+             `SELECT 1 FROM organization_members WHERE organization_id = $1 AND user_id = $2 AND status = 'active'`,
+             [organization_id, userId]
+          );
+          
+          if (membership.length === 0) {
+              return error(res, 'You do not have access to this organization protocols', 403, req);
+          }
       }
 
       // Get protocols for a specific organization
@@ -168,10 +171,21 @@ async function listProtocols(userId: string, req: VercelRequest, res: VercelResp
          ORDER BY p.created_at DESC`,
         [organization_id]
       );
+
+      // Get challenges for a specific organization
+      challenges = await query(
+        `SELECT c.id, c.title as name, c.description, c.icon, c.status, 
+                c.created_at, c.created_by as creator_id, c.organization_id,
+                o.name as organization_name
+         FROM challenges c
+         LEFT JOIN organizations o ON c.organization_id = o.id
+         WHERE c.organization_id = $1
+         ORDER BY c.created_at DESC`,
+        [organization_id]
+      );
+
     } else {
       // Get all protocols (for admin) or user's assigned protocols
-      const auth = getAuthFromRequest(req);
-      const isAdmin = (auth?.permissions || []).includes('admin');
       
       if (isAdmin) {
         protocols = await query(
@@ -179,6 +193,18 @@ async function listProtocols(userId: string, req: VercelRequest, res: VercelResp
            FROM protocols p
            ORDER BY p.created_at DESC`
         );
+
+        // Admin gets ALL challenges
+        challenges = await query(
+            `SELECT 
+              c.id, c.title as name, c.description, c.icon, c.status,
+              c.created_at, c.created_by as creator_id, c.organization_id,
+              o.name as organization_name
+            FROM challenges c
+            LEFT JOIN organizations o ON c.organization_id = o.id
+            ORDER BY c.created_at DESC`
+        );
+
       } else {
         // Get protocols assigned to user
         protocols = await query(
@@ -189,15 +215,73 @@ async function listProtocols(userId: string, req: VercelRequest, res: VercelResp
            ORDER BY p.created_at DESC`,
           [userId]
         );
+
+        // Get discoverable challenges for user
+        challenges = await query(
+            `SELECT 
+              c.id, c.title as name, c.description, c.icon, c.status,
+              c.created_at, c.created_by as creator_id, c.organization_id,
+              o.name as organization_name
+            FROM challenges c
+            LEFT JOIN organizations o ON c.organization_id = o.id
+            LEFT JOIN organization_members om ON c.organization_id = om.organization_id AND om.user_id = $1
+            WHERE 
+              (c.organization_id IS NULL AND c.is_public = true)
+              OR 
+              (c.organization_id IS NOT NULL AND om.id IS NOT NULL AND om.status = 'active')
+            ORDER BY c.created_at DESC`,
+            [userId]
+        );
       }
     }
     
-    // For each protocol, get elements
-    const protocolsWithElements = await Promise.all(protocols.map(async (p: any) => {
-      const elements = await query(
-        `SELECT * FROM protocol_elements WHERE protocol_id = $1 ORDER BY display_order, created_at`,
-        [p.id]
-      );
+    // Tag and Negate IDs for challenges to avoid collision
+    const formattedChallenges = challenges.map(c => ({
+        ...c,
+        id: -c.id, // Negative ID for challenges
+        original_id: c.id,
+        source_type: 'challenge'
+    }));
+
+    const formattedProtocols = protocols.map(p => ({
+        ...p,
+        source_type: 'protocol'
+    }));
+
+    const allItems = [...formattedProtocols, ...formattedChallenges];
+    
+    // For each item, get elements/tasks
+    const protocolsWithElements = await Promise.all(allItems.map(async (p: any) => {
+      let elements = [];
+      
+      if (p.source_type === 'challenge') {
+          // Fetch Tasks
+          const tasks = await query(
+              `SELECT * FROM challenge_tasks WHERE challenge_id = $1 ORDER BY id`,
+              [p.original_id]
+          );
+          
+          elements = tasks.map((t:any) => ({
+              id: t.id,
+              title: t.title,
+              description: t.description,
+              type: t.type === 'boolean' ? 'check' : (t.type === 'numeric' ? 'number' : t.type),
+              goal: t.target_value,
+              unit: t.unit,
+              frequency: 'daily',
+              min_value: null,
+              max_value: null,
+              points: 10 // Default points for challenge task
+          }));
+      } else {
+          // Fetch Elements
+          const rawElements = await query(
+            `SELECT * FROM protocol_elements WHERE protocol_id = $1 ORDER BY display_order, created_at`,
+            [p.id]
+          );
+          elements = rawElements;
+      }
+
       return {
         ...p,
         creatorId: p.creator_id,
